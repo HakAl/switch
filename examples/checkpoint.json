@@ -1,0 +1,18 @@
+{
+  "task": "Describe the authorized task",
+  "role": "Describe this seat's role",
+  "worktree": "/absolute/path/to/worktree",
+  "refs": ["branch and commit; uncommitted changes if any"],
+  "completed": ["What is already done and verified"],
+  "unfinished": ["What remains"],
+  "next_action": "One concrete next action and its completion check",
+  "instructions": ["/absolute/path/to/worktree/AGENTS.md"],
+  "authority_sources": ["/absolute/path/to/original-operator-instructions.md"],
+  "preparation": {
+    "quiescent": true,
+    "active_tools": [],
+    "workers": [],
+    "waits": []
+  },
+  "notes": "Agent-authored restart notes, separate from original operator authority. Do not declare quiescence until you have checked."
+}

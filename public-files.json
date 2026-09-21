@@ -1,0 +1,19 @@
+[
+  ".gitignore",
+  "LICENSE",
+  "README.md",
+  "docs/auto.md",
+  "docs/design.md",
+  "docs/install-check.txt",
+  "docs/release-0.2.0.md",
+  "docs/validation.md",
+  "examples/checkpoint.json",
+  "public-files.json",
+  "switch.py",
+  "switch_auto.py",
+  "tests/fake_herdr.py",
+  "tests/test_review_fixes.py",
+  "tests/test_session_isolation.py",
+  "tests/test_switch.py",
+  "tests/test_switch_auto.py"
+]

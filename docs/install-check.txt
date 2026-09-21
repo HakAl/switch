@@ -1,0 +1,263 @@
+Fresh local clone installation check, 2026-09-21
+
+Paths are normalized: $SCRATCH is a temporary directory outside the development tree;
+$SWITCH_DIR is its clone. $PYTHON_EXECUTABLE is the interpreter reported by sys.executable.
+The source export was cloned locally because the public remote has not been pushed.
+CLAUDE_CONFIG_DIR points inside $SCRATCH; HERDR_PANE_ID, SWITCH_STATE_DIR and PYTHONPATH
+were unset. No live Claude or Herdr commands were invoked.
+
+$ git clone --no-local $SOURCE_EXPORT $SWITCH_DIR
+exit: 0
+stderr:
+Cloning into '$SWITCH_DIR'...
+
+$ python3 --version
+exit: 0
+stdout:
+Python 3.14.7
+
+$ python3 switch.py --version
+exit: 0
+stdout:
+0.2.0
+
+$ python3 switch_auto.py --version
+exit: 0
+stdout:
+0.2.0
+
+$ python3 -B -m unittest discover -s tests -v
+exit: 0
+stderr:
+[individual passing test names omitted]
+----------------------------------------------------------------------
+Ran 98 tests in 4.850s
+
+OK
+
+$ /usr/bin/python3 --version
+exit: 0
+stdout:
+Python 3.9.6
+
+$ /usr/bin/python3 -B -m unittest discover -s tests -v
+exit: 0
+stderr:
+[individual passing test names omitted]
+----------------------------------------------------------------------
+Ran 98 tests in 4.466s
+
+OK
+
+$ python3 switch.py --help
+exit: 0
+stdout:
+usage: switch.py [-h] [--version]
+                 {preflight,request,status,ack,hook,hooks,_run} ...
+
+A bounded, explicit Claude/Herdr context reset. Python 3.9+, POSIX.
+
+positional arguments:
+  {preflight,request,status,ack,hook,hooks,_run}
+
+options:
+  -h, --help            show this help message and exit
+  --version             show program's version number and exit
+
+$ python3 $SWITCH_DIR/switch_auto.py install 250k --project $SCRATCH/project --state-dir $SCRATCH/state --dry-run
+exit: 0
+stdout:
+{
+  "settings": "$SCRATCH/project/.claude/settings.local.json",
+  "limit": {
+    "kind": "tokens",
+    "value": 250000.0,
+    "label": "250k"
+  },
+  "scope": "project",
+  "preserves_permissions": true,
+  "existing_statusline": null,
+  "notices": [
+    "Automatic hooks retain verbatim session inputs, including pasted content, under $SCRATCH/state/auto; private files, up to 512 KiB per session. This applies to hooked sessions in the installed scope, including nested sessions.",
+    "One reset attempt per session. Even not_cleared retains its claim; resolve the cause and use deliberate manual recovery, not another automatic request."
+  ]
+}
+
+$ python3 $SWITCH_DIR/switch_auto.py install 250k --project $SCRATCH/project --state-dir $SCRATCH/state
+exit: 0
+stdout:
+{
+  "installed": "$SCRATCH/project/.claude/settings.local.json",
+  "limit": {
+    "kind": "tokens",
+    "value": 250000.0,
+    "label": "250k"
+  },
+  "manifest": "$SCRATCH/project/.claude/switch-auto.json",
+  "required_permissions": [
+    "Bash($PYTHON_EXECUTABLE $SWITCH_DIR/switch.py request *)",
+    "Bash($PYTHON_EXECUTABLE $SWITCH_DIR/switch.py ack *)",
+    "Read(/$SCRATCH/state/**)",
+    "Edit(/$SCRATCH/state/auto-checkpoints/**)"
+  ],
+  "notices": [
+    "Automatic hooks retain verbatim session inputs, including pasted content, under $SCRATCH/state/auto; private files, up to 512 KiB per session. This applies to hooked sessions in the installed scope, including nested sessions.",
+    "One reset attempt per session. Even not_cleared retains its claim; resolve the cause and use deliberate manual recovery, not another automatic request."
+  ],
+  "next": "Start a new Claude session under Herdr; retain existing task permissions."
+}
+
+Merged the four printed required_permissions entries into permissions.allow in the temporary project; no real settings were changed.
+
+$ python3 $SWITCH_DIR/switch_auto.py status --project $SCRATCH/project
+exit: 0
+stdout:
+{
+  "installed": true,
+  "scope": "project",
+  "limit": {
+    "kind": "tokens",
+    "label": "250k",
+    "value": 250000.0
+  },
+  "root": "$SCRATCH/state",
+  "settings": "$SCRATCH/project/.claude/settings.local.json",
+  "statusline_intact": true,
+  "required_permissions": [
+    "Bash($PYTHON_EXECUTABLE $SWITCH_DIR/switch.py request *)",
+    "Bash($PYTHON_EXECUTABLE $SWITCH_DIR/switch.py ack *)",
+    "Read(/$SCRATCH/state/**)",
+    "Edit(/$SCRATCH/state/auto-checkpoints/**)"
+  ],
+  "runtime_states": "$SCRATCH/state/auto",
+  "session": null
+}
+
+$ python3 $SWITCH_DIR/switch_auto.py uninstall --project $SCRATCH/project
+exit: 0
+stdout:
+{
+  "uninstalled": "$SCRATCH/project/.claude/settings.local.json",
+  "original_statusline_restored": true,
+  "note": "Unrelated configuration and later statusLine edits preserved; state/evidence retained."
+}
+
+$ python3 $SWITCH_DIR/switch_auto.py status --project $SCRATCH/project
+exit: 0
+stdout:
+{
+  "installed": false,
+  "scope": "project"
+}
+
+$ python3 $SWITCH_DIR/switch.py hooks --state-dir $SCRATCH/state
+exit: 0
+stdout:
+{
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "command": "$PYTHON_EXECUTABLE $SWITCH_DIR/switch.py hook --state-dir $SCRATCH/state",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "$PYTHON_EXECUTABLE $SWITCH_DIR/switch.py hook --state-dir $SCRATCH/state",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "command": "$PYTHON_EXECUTABLE $SWITCH_DIR/switch.py hook --state-dir $SCRATCH/state",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "command": "$PYTHON_EXECUTABLE $SWITCH_DIR/switch.py hook --state-dir $SCRATCH/state",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "$PYTHON_EXECUTABLE $SWITCH_DIR/switch.py hook --state-dir $SCRATCH/state",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "$PYTHON_EXECUTABLE $SWITCH_DIR/switch.py hook --state-dir $SCRATCH/state",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "command": "$PYTHON_EXECUTABLE $SWITCH_DIR/switch.py hook --state-dir $SCRATCH/state",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "command": "$PYTHON_EXECUTABLE $SWITCH_DIR/switch.py hook --state-dir $SCRATCH/state",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "command": "$PYTHON_EXECUTABLE $SWITCH_DIR/switch.py hook --state-dir $SCRATCH/state",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  }
+}
+
+$ git status --porcelain
+exit: 0
+
+Dry-run wrote nothing; install/status/uninstall passed; permission edits preserved; user-config fixture untouched; nine base hooks printed; clone clean; no live Herdr or Claude invocation.
