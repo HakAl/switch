@@ -2,7 +2,7 @@
 
 ## Automated coverage
 
-The v0.2 suite has 98 tests, passing on macOS with Python 3.9.6 and 3.14.7.
+The v0.3 suite has 109 tests, passing on macOS with Python 3.9.6 and 3.14.7.
 Tests use fake Herdr, hook input, clocks and a detached subprocess with a fake
 executable. They do not read or send to live panes. Run from the checkout:
 
@@ -14,8 +14,36 @@ Coverage includes input parsing, missing or modified checkpoints, identity chang
 active tools and workers, duplicate claims, deadline exhaustion, transient telemetry,
 uncertain sends, wrong acknowledgments, permission-mode changes, abandoned helpers,
 session isolation, malformed context samples, threshold feedback, scoped installation
-and restoration of existing settings. See [the release check](release-0.2.0.md)
-for the fresh-clone installation results.
+and restoration of existing settings. The v0.3 installation check is summarized
+below. The [v0.2 release check](release-0.2.0.md) preserves the earlier installation
+transcript and its 98-test baseline.
+
+## Live explicit retry, September 23, 2026
+
+**Passed:** Herdr 0.7.5, Claude Code 2.1.281, Opus 5.5, auto permission mode,
+in a disposable workspace with the automatic companion installed and scoped
+request/ack permissions configured.
+
+The driver scheduled a request after the initial turn stopped, then sent a real
+user prompt. The helper finished `not_cleared` with no clear attempt. After an
+explicit retry instruction and fresh checkpoint validation, the agent scheduled
+`request --retry-of` and ended its turn. The successor finished `resumed` in a
+new session, acknowledged the matching checkpoint hash, and wrote the expected
+test result. The cancelled receipt was unchanged. The two receipts contain one
+clear intent and one bootstrap intent; auto permission mode was preserved.
+
+Herdr's pasted retry instruction was initially treated as quoted text by Claude;
+the driver confirmed the already-authorized retry using normal keyboard input.
+This tests explicit retry with automatic hooks installed, not threshold-triggered
+resetting. No real task session was reset. Private receipts and captures are not
+published; this is a maintainer-reported live result.
+
+The v0.3 fresh public-file installation check also passed: version commands,
+project installation dry-run, install, merging required permissions, status,
+uninstall preserving permissions, and generation of all nine lifecycle hooks.
+The test used isolated project/state/config directories and left user settings
+unchanged. The automated suite includes a reproducible detached-process
+cancellation/retry test with fake Herdr, plus race and crash-point coverage.
 
 ## Live observations, September 20, 2026
 
@@ -42,7 +70,7 @@ versions tested, not an assertion about compatibility with older or newer versio
 The public repository includes sanitized summaries, not private runtime receipts,
 terminal captures, captured prompts or local process records. Live results above
 are maintainer-reported observations; the unit suite is reproducible from this tree.
-No new live reset was staged for release preparation.
+The v0.3 live retry above is separate from these earlier observations.
 
 ## Recovery and resource limits
 

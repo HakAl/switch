@@ -17,7 +17,17 @@ Herdr idle and a Stop event cannot prove those jobs have finished.
 checkpoint into private storage, claims the old session, starts the helper and
 returns. The agent then ends its turn immediately. New user input after scheduling
 invalidates the pending request. A claim persists even if no clear is sent; there
-is no automatic retry. A per-pane advisory lock prevents concurrent helpers.
+is no automatic retry. An explicit `request --retry-of` may transfer that claim
+only from a finished `not_cleared` attempt with complete evidence that no clear
+or resume was attempted, and the same live pane/session/terminal identity.
+
+Retry holds the claim, pane and predecessor-worker locks while validating and
+publishing a fresh checkpoint and request. The atomic claim replacement commits
+ownership; the old receipt remains unchanged. Helpers verify ownership before
+starting, so a request orphaned before publication cannot send. Status reports
+the current owner and advisory eligibility; scheduling rechecks it. Uncertain
+sends and interrupted helpers remain ineligible. A per-pane advisory lock
+prevents concurrent helpers.
 
 ## Confirming the reset
 
@@ -77,4 +87,4 @@ denied. Replacement sessions stay disarmed until acknowledgment followed by a fr
 below-limit sample. A bootstrap over the threshold cannot cause a reset loop.
 
 See [automatic setup](auto.md), [validation](validation.md), and the
-[recovery procedure](../README.md#results-and-recovery).
+[recovery procedure](reference.md#results-and-recovery).

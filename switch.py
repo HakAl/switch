@@ -20,7 +20,7 @@ import tempfile
 import time
 import uuid
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 EVENTS = ("SessionStart", "UserPromptSubmit", "Stop", "PreToolUse", "PostToolUse",
           "PostToolUseFailure", "SubagentStart", "SubagentStop", "PermissionRequest")
 ID_RE = re.compile(r"^[a-zA-Z0-9_.:-]{1,160}$")
@@ -30,7 +30,9 @@ MARKER = "[Switch automation request "
 
 
 class Refused(Exception):
-    pass
+    def __init__(self, message, **details):
+        super().__init__(message)
+        self.details = details
 
 
 def identifier(value):
@@ -387,7 +389,72 @@ def save(d, r, stage=None, **fields):
     atomic(d / "request.json", r)
 
 
-def create(h, root, pane, sid, cp, resume, idle=300, clear=60, ack=120):
+def claim_path(root, pane, sid):
+    return Path(root) / "claims" / (digest((identifier(pane) + "\0" + identifier(sid)).encode()) + ".json")
+
+
+def claim_owner(root, pane, sid):
+    try:
+        value = load(claim_path(root, pane, sid))
+        return identifier(value["request_id"])
+    except (OSError, ValueError, TypeError, KeyError, Refused):
+        return None
+
+
+def no_clear_reason(r):
+    """None only for a complete, consistent terminal receipt before send intent."""
+    if not isinstance(r, dict) or r.get("stage") != "finished" or r.get("outcome") != "not_cleared":
+        return "request is not a finished not_cleared attempt"
+    if (r.get("clear_attempted") is not False or r.get("resume_attempted") is not False
+            or "new_session" not in r or r["new_session"] is not None):
+        return "clear/resume evidence is missing or a send may have been attempted"
+    if any(key in r for key in ("clear_at", "resume_at", "clear_send_returned", "resume_send_returned",
+                                "after", "bootstrap_sha256", "submitted_at", "acknowledged_at")):
+        return "receipt contains clear/resume evidence; inspect before recovery"
+    try:
+        for key in ("request_id", "pane", "old_session", "terminal_id"):
+            identifier(r[key])
+        if not isinstance(r["root"], str) or not Path(r["root"]).is_absolute():
+            raise ValueError()
+        history = r["history"]
+        stages = [item["stage"] for item in history]
+        if stages not in (["scheduled", "finished"], ["scheduled", "waiting_for_stop", "finished"]):
+            raise ValueError()
+        times = [r["requested_at"]] + [item["at"] for item in history] + [r["updated_at"]]
+        if any(type(t) not in (int, float) or not math.isfinite(t) or t <= 0 for t in times):
+            raise ValueError()
+        if times != sorted(times):
+            raise ValueError()
+    except (KeyError, TypeError, ValueError, Refused):
+        return "receipt identity/history is missing or inconsistent"
+    return None
+
+
+def retry_info(root, r):
+    """Advisory only; create rechecks the durable receipt and claim under locks."""
+    owner = claim_owner(root, r.get("pane"), r.get("old_session"))
+    reason = no_clear_reason(r)
+    if not owner:
+        reason = "session claim is missing or malformed"
+    elif owner != r.get("request_id"):
+        reason = "request is already superseded or does not own the claim"
+    elif r.get("root") != str(Path(root).resolve()):
+        reason = "request state root does not match"
+    return {"retry_eligible": reason is None,
+            "retry_reason": reason or "no clear attempted; explicit retry requires fresh preparation",
+            "current_request_id": owner}
+
+
+@contextlib.contextmanager
+def request_lock(path, label):
+    try:
+        with lock(path):
+            yield
+    except BlockingIOError:
+        raise Refused("request temporarily refused: " + label + " busy; inspect status before retrying") from None
+
+
+def create(h, root, pane, sid, cp, resume, idle=300, clear=60, ack=120, retry_of=None):
     identifier(pane)
     identifier(sid)
     if not resume.strip() or len(resume) > 4000 or any(ord(c) < 32 and c not in "\n\t" for c in resume):
@@ -402,11 +469,48 @@ def create(h, root, pane, sid, cp, resume, idle=300, clear=60, ack=120):
     root = Path(root).resolve()
     rid = str(uuid.uuid4())
     d = request_dir(root, rid)
-    claim = root / "claims" / (digest((pane + "\0" + sid).encode()) + ".json")
-    with lock(root / "claim.lock"):
-        if claim.exists():
-            old = load(claim)
-            raise Refused("session already claimed by " + old["request_id"] + "; inspect status; do not re-clear")
+    claim = claim_path(root, pane, sid)
+    with contextlib.ExitStack() as locks:
+        locks.enter_context(request_lock(root / "claim.lock", "session claim lock"))
+        if retry_of is not None:
+            identifier(retry_of)
+            locks.enter_context(request_lock(root / "panes" / (pane + ".reset.lock"), "pane reset lock"))
+            locks.enter_context(request_lock(request_dir(root, retry_of) / "worker.lock", "previous helper lock"))
+            owner = claim_owner(root, pane, sid)
+            if owner != retry_of:
+                raise Refused("retry predecessor is superseded or does not own the session claim",
+                              retry_eligible=False, current_request_id=owner)
+            try:
+                old = load(request_dir(root, retry_of) / "request.json")
+            except (OSError, ValueError):
+                raise Refused("retry receipt is missing or malformed") from None
+            why = no_clear_reason(old)
+            if why:
+                raise Refused("retry refused: " + why, retry_eligible=False, current_request_id=owner)
+            if any(old[key] != value for key, value in (("request_id", retry_of), ("root", str(root)),
+                                                       ("pane", pane), ("old_session", sid))):
+                raise Refused("retry receipt identity does not match the current claim")
+            # Repeat preflight inside the ownership transaction, with fresh checkpoint bytes.
+            info = preflight(h, root, pane, sid, cp)
+            target(h.agent(pane), pane, sid, old["terminal_id"])
+            if info["terminal_id"] != old["terminal_id"]:
+                raise Refused("retry terminal changed")
+            _, raw = checkpoint(cp)
+            if digest(raw) != info["checkpoint_sha256"]:
+                raise Refused("checkpoint changed during retry preflight")
+        elif claim.exists():
+            owner = claim_owner(root, pane, sid)
+            details = {"retry_eligible": False, "current_request_id": owner}
+            if owner:
+                try:
+                    old = load(request_dir(root, owner) / "request.json")
+                    if isinstance(old, dict):
+                        details = retry_info(root, old)
+                except (OSError, ValueError):
+                    pass
+            advice = ("explicit retry requires fresh preparation and --retry-of " + owner
+                      if details["retry_eligible"] else "inspect status; do not re-clear")
+            raise Refused("session already claimed by " + str(owner) + "; " + advice, **details)
         d.mkdir(parents=True, mode=0o700)
         atomic(d / "checkpoint.json", json.loads(raw))
         # Digest the actual durable copy; its formatting can differ from the source.
@@ -417,7 +521,15 @@ def create(h, root, pane, sid, cp, resume, idle=300, clear=60, ack=120):
              "deadlines": {"idle": idle, "clear": clear, "ack": ack},
              "requested_at": time.time(), "before": info, "outcome": None,
              "worker_pid": None, "clear_attempted": False, "resume_attempted": False}
+        if retry_of is not None:
+            r["retry_of"] = retry_of
         save(d, r, "scheduled")
+        # Publish the new directory durably before the claim can name it.
+        fd = os.open(d.parent, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
         atomic(claim, {"request_id": rid})
     return r
 
@@ -489,9 +601,12 @@ def recovery(r):
         return ("Clear outcome uncertain. Inspect Herdr session and SessionStart telemetry. "
                 "The original session may remain; a delayed clear may still arrive. Do not "
                 "retry /clear or resume until reconciled. Recover from checkpoint.json if cleared.")
-    return ("No clear sent by this request. Inspect the original session, finish preparation "
-            "or resolve telemetry/input issues. This session claim is retained; use a deliberate "
-            "manual reset and the saved checkpoint if needed, not another automated request.")
+    prefix = ("New input cancelled the pending reset; nothing was cleared. "
+              if r.get("reason") == "another user prompt arrived after scheduling"
+              else "No clear sent by this request. Inspect the failure and resolve preparation/input issues. ")
+    return (prefix + "Inspect status for retry_eligible and the current request ID. If eligible and the user "
+            "asks to try again, revalidate preparation/checkpoint and use request --retry-of REQUEST_ID. "
+            "Do not retry automatically, delete claims, or use ack to unlock a session.")
 
 
 def execute(h, root, rid, mono=time.monotonic, sleep=time.sleep):
@@ -503,6 +618,10 @@ def execute(h, root, rid, mono=time.monotonic, sleep=time.sleep):
             with lock(d / "worker.lock"):
                 r = load(d / "request.json")
                 if r.get("stage") != "scheduled" or r.get("outcome"):
+                    return r
+                if claim_owner(root, r["pane"], r["old_session"]) != rid:
+                    save(d, r, "finished", outcome="not_cleared",
+                         reason="claim ownership lost before execution", recovery=recovery(r))
                     return r
                 save(d, r, "waiting_for_stop", worker_pid=os.getpid())
                 try:
@@ -604,7 +723,8 @@ def execute(h, root, rid, mono=time.monotonic, sleep=time.sleep):
                 except (Exception, KeyboardInterrupt) as exc:
                     outcome = "cleared_not_resumed" if r.get("new_session") else (
                         "clear_uncertain" if r.get("clear_attempted") else "not_cleared")
-                    save(d, r, "finished", outcome=outcome, reason=str(exc), recovery=recovery(r))
+                    r["reason"] = str(exc)
+                    save(d, r, "finished", outcome=outcome, recovery=recovery(r))
                     return r
     except BlockingIOError:
         # A duplicate worker never writes over the real owner. A different
@@ -646,19 +766,19 @@ def inspect(root, rid):
     d = request_dir(root, rid)
     r = load(d / "request.json")
     if r.get("outcome"):
-        return r
+        return dict(r, **retry_info(root, r), recovery=recovery(r))
     try:
         with lock(d / "worker.lock"):
             r = load(d / "request.json")
             if r.get("outcome"):
-                return r
+                return dict(r, **retry_info(root, r), recovery=recovery(r))
             age = time.time() - r["requested_at"]
             if r["stage"] != "scheduled" or age > 10:
                 # Read-only derived status. Never re-drive an interrupted request.
-                return dict(r, outcome="interrupted_uncertain", recovery=recovery(r))
+                r = dict(r, outcome="interrupted_uncertain", recovery=recovery(r))
     except BlockingIOError:
         pass
-    return r
+    return dict(r, **retry_info(root, r))
 
 
 def hooks_config(root):
@@ -681,6 +801,7 @@ def main(argv=None):
             q.add_argument("--checkpoint", required=True, type=Path)
         if name == "request":
             q.add_argument("--resume", required=True)
+            q.add_argument("--retry-of", help="explicitly retry a finished request that never attempted clear")
             q.add_argument("--idle-deadline", type=float, default=300)
             q.add_argument("--clear-deadline", type=float, default=60,
                            help="seconds each for clear confirmation and subsequent readiness (default: 60 each)")
@@ -708,7 +829,7 @@ def main(argv=None):
             result = preflight(h, root, args.pane, args.session, args.checkpoint)
         elif args.command == "request":
             r = create(h, root, args.pane, args.session, args.checkpoint, args.resume,
-                       args.idle_deadline, args.clear_deadline, args.ack_deadline)
+                       args.idle_deadline, args.clear_deadline, args.ack_deadline, retry_of=args.retry_of)
             d = request_dir(root, r["request_id"])
             try:
                 with open(d / "helper.log", "ab", buffering=0) as log:
@@ -717,10 +838,11 @@ def main(argv=None):
                                      stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                                      start_new_session=True, close_fds=True)
             except OSError as exc:
-                save(d, r, "finished", outcome="not_cleared", reason=str(exc), recovery=recovery(r))
+                r["reason"] = str(exc)
+                save(d, r, "finished", outcome="not_cleared", recovery=recovery(r))
                 raise
             result = {"request_id": r["request_id"], "stage": "scheduled", "state_dir": str(root),
-                      "next": "End this turn now. Do not launch tools, workers, or waits."}
+                      "next": "End this turn now. Do not launch tools, workers, or waits. Additional user input cancels the pending reset."}
         elif args.command == "_run":
             def terminate(signum, frame):
                 raise KeyboardInterrupt("helper received signal " + str(signum))
@@ -734,7 +856,7 @@ def main(argv=None):
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result.get("outcome") in (None, "resumed") else 4
     except (OSError, ValueError, Refused, TypeError, KeyError) as exc:
-        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        print(json.dumps({"error": str(exc), **getattr(exc, "details", {})}), file=sys.stderr)
         return 3
 
 

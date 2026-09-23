@@ -32,7 +32,7 @@ Repeat install with a different limit to update it. Keep the installed scripts
 and Python interpreter at stable paths. Start a new Claude session after setup.
 
 The installer (including `--dry-run`) discloses verbatim prompt retention under
-the state root and the persistent one-attempt rule. At user scope this covers all
+the state root and the explicit-retry policy. At user scope this covers all
 hooked sessions for that user, including nested processes. Files are private and
 bounded per session; there is no automatic retention expiry.
 
@@ -53,7 +53,7 @@ It prints `required_permissions` for the exact installed interpreter and paths.
 Configure those scoped allow entries through your normal Claude permission setup
 for an unattended request/ack/checkpoint path, plus reads for instruction and
 original authority sources and permissions for the task itself. The installer
-preserves existing permissions. See [the base setup](../README.md#permissions-for-the-complete-path)
+preserves existing permissions. See [the base setup](reference.md#permissions-for-the-complete-path)
 for filesystem, socket and permission details. Runtime cannot grant permissions.
 
 A Sonnet 5 auto-mode test without request/ack Bash allow rules was denied as
@@ -115,8 +115,13 @@ to the ordinary `switch.py status --state-dir PATH --request-id REQUEST_ID` resu
 Each notice and Stop continuation happens at most once per session, including
 later turns. The exact supplied request command's PreToolUse records an attempt;
 even a refusal before claim creation suppresses further feedback. A durable reset
-claim also suppresses it. Failure is reported, never automatically retried. Do not
-delete claims or change state directories to bypass the base engine's guards.
+claim also suppresses it. Failure is reported, never automatically retried. If the
+user asks to try again, inspect `switch.py status`: a finished `not_cleared`
+request with `retry_eligible: true` supports `request --retry-of REQUEST_ID` after
+fresh preparation and checkpoint validation. Status identifies the current claim
+owner; an obsolete request cannot be retried. Explicit retries do not rearm
+threshold feedback. Do not delete claims or change state directories to bypass
+the base engine's guards. `ack` is a continuation receipt, not an unlock command.
 
 Under the private state root, `auto/PANE/` contains measurements, session states,
 and bounded verbatim UserPromptSubmit inputs as provenance. Lifecycle records

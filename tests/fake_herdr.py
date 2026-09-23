@@ -28,7 +28,8 @@ elif a[:2] == ['agent', 'prompt']:
                           'source':'clear','cwd':str(root),'permission_mode':'auto'})
     else:
         s.hook(root, 'p1', {'hook_event_name':'UserPromptSubmit','session_id':'new','prompt':prompt})
-        r = s.load(next((root/'requests').glob('*/request.json')))
+        rid = s.load(root/'panes/p1.pending.json')['request_id']
+        r = s.load(s.request_dir(root, rid)/'request.json')
         s.acknowledge(s.Herdr(), root, r['request_id'], 'new', r['checkpoint_sha256'])
     print('{}')
 else:

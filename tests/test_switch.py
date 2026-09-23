@@ -75,7 +75,8 @@ class FakeHerdr:
             s.hook(self.root, pane, {"hook_event_name": "UserPromptSubmit", "session_id": self.sid,
                                     "prompt": text})
         if self.ack:
-            r = next((Path(self.root) / "requests").glob("*/request.json"))
+            rid = s.load(Path(self.root) / 'panes' / (pane + '.pending.json'))['request_id']
+            r = s.request_dir(self.root, rid) / 'request.json'
             data = s.load(r)
             s.acknowledge(self, self.root, data["request_id"], self.sid, data["checkpoint_sha256"])
         return self.resume_ok
