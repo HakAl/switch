@@ -56,12 +56,11 @@ original authority sources and permissions for the task itself. The installer
 preserves existing permissions. See [the base setup](reference.md#permissions-for-the-complete-path)
 for filesystem, socket and permission details. Runtime cannot grant permissions.
 
-A Sonnet 5 auto-mode test without request/ack Bash allow rules was denied as
-`Tmux Self Drive` before any clear. A later Fable 5.1 dogfood run verified v0.2
-reset, bootstrap and acknowledgment in auto mode with a manual trigger.
-Launch-time allow rules were not captured. Threshold-triggered end-to-end
-validation of v0.2 in auto mode remains **pending**. See [validation](validation.md).
-Configure scoped permissions explicitly before relying on unattended resets.
+Without scoped request/ack permissions, auto mode has denied resets before clear.
+Manual-trigger reset and acknowledgment have passed with explicit permissions;
+see [validation](validation.md) for tested versions and limits. Configure scoped
+permissions explicitly before relying on unattended resets. The latest release
+smoke test exercises a manual trigger, not the threshold path.
 
 Do not also install `switch.py hook`: the automatic hooks include that recorder.
 The installer refuses detected standalone hooks; migrate those explicitly before

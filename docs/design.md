@@ -13,6 +13,10 @@ instruction and original authority-source paths, and an explicit empty resource
 inventory. Untracked external jobs remain the initiating agent's responsibility.
 Herdr idle and a Stop event cannot prove those jobs have finished.
 
+`preflight` and `request` first require inherited `HERDR_PANE_ID` to match the
+requested pane, then check its live session identity. This is a procedural guard,
+not OS-level authentication: arbitrary local code can alter its environment.
+
 `preflight` checks setup without sending. `request` copies and hashes the bounded
 checkpoint into private storage, claims the old session, starts the helper and
 returns. The agent then ends its turn immediately. New user input after scheduling
@@ -36,6 +40,10 @@ telemetry, an idle/done Herdr row, and a readable empty prompt. It examines the
 whole bordered input box, including continuation lines, and ignores only actual
 SGR 2 dim suggestions. It refuses unfamiliar layouts, dialogs and scrolled views.
 Visible reads require scroll offset zero both before and after capture.
+
+Stop clears foreground tool entries, including calls denied without a completion
+event. Background workers remain tracked until their own completion events; Stop
+does not establish that external jobs have finished.
 
 Before each send it rechecks pane, terminal, expected session and readiness, then
 records intent. Herdr has no atomic session-compare-and-send operation, so exclusive

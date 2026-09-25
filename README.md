@@ -49,6 +49,7 @@ python3 "$SWITCH_DIR/switch_auto.py" uninstall --project "$SWITCH_PROJECT"
 
 For user-wide installation or other limits, see [automatic setup](docs/auto.md).
 For manual-trigger hooks and CLI commands, see the [reference](docs/reference.md).
+Run requests from the session being reset; Switch checks the inherited Herdr pane.
 
 ## When a reset is pending
 

@@ -2,7 +2,7 @@
 
 ## Automated coverage
 
-The v0.3 suite has 109 tests, passing on macOS with Python 3.9.6 and 3.14.7.
+The v0.3.1 suite has 115 tests, passing on macOS with Python 3.9.6 and 3.14.7.
 Tests use fake Herdr, hook input, clocks and a detached subprocess with a fake
 executable. They do not read or send to live panes. Run from the checkout:
 
@@ -14,9 +14,41 @@ Coverage includes input parsing, missing or modified checkpoints, identity chang
 active tools and workers, duplicate claims, deadline exhaustion, transient telemetry,
 uncertain sends, wrong acknowledgments, permission-mode changes, abandoned helpers,
 session isolation, malformed context samples, threshold feedback, scoped installation
-and restoration of existing settings. The v0.3 installation check is summarized
-below. The [v0.2 release check](release-0.2.0.md) preserves the earlier installation
+and restoration of existing settings. New regressions cover denied tools without
+completion events, missing or mismatched caller panes, and live-session mismatch.
+The v0.3.1 installation check is summarized below. The [v0.2 release check](release-0.2.0.md) preserves the earlier installation
 transcript and its 98-test baseline.
+
+## Release 0.3.1, September 25, 2026
+
+**Passed:** a disposable standalone reset on Herdr 0.7.5, Claude Code 2.1.282,
+Opus 5.5, Python 3.14.7, with the full tool set in auto permission mode.
+
+A fixture hook deliberately denied a harmless Bash call after PreToolUse; no
+PostToolUse or PostToolUseFailure followed for that call. The agent then ran
+preflight and request from its own pane. Stop cleared the stale foreground entry,
+and the helper completed one clear and one bootstrap. The new session re-read
+original authority, acknowledged the matching checkpoint hash, and wrote the
+expected result. Both request and acknowledgment recorded auto mode.
+
+A separate disposable shell pane attempted preflight and request against the live
+test session. Both returned caller-pane refusal; neither created a request or
+claim. The target session then completed its own reset.
+
+Launch settings were captured before startup and unchanged afterward: scoped
+preflight/request/status/ack commands, fixture file reads/writes and the harmless
+probe command. Workspace trust was accepted before testing; no tool approval or
+permission change was needed during the reset. The fixture explicitly authorized
+the expected denial and instructed the replacement to run ack by itself. This is
+one controlled manual-trigger run, not threshold or plugin validation, and does
+not establish reliability across other models or permission configurations.
+
+The exported tree also passed version/help, isolated installation dry-run,
+installation, required-permission merging, status, uninstall preserving grants,
+and all nine hook events. User settings and credentials were not copied or edited.
+[install-check.txt](install-check.txt) remains the dated v0.2 transcript; it is not
+output from this release. Raw live evidence remains private; these are
+maintainer-reported results.
 
 ## Live explicit retry, September 23, 2026
 

@@ -141,9 +141,11 @@ automatically. The new context still needs the scoped `ack` command permission.
    workers and waits are all empty **except the upcoming request command itself**.
    Hooks also check tools/workers, but cannot discover arbitrary external jobs or
    a process detached by a completed Bash call. This attestation is necessary.
-3. Run preflight, then request. Bind to the exact pane and current session from
-   Herdr; don't guess a label or pick the first Claude seat. Preflight is read-only
-   and reports busy/input conditions without treating them as readiness.
+3. Run preflight, then request **from the Claude session being reset**. Herdr
+   supplies `HERDR_PANE_ID`; `--pane` must match it, and `--session` must be that
+   pane's current live session. Missing or mismatched caller identity is refused.
+   Do not set or override this variable to target another pane. Preflight is
+   read-only and reports busy/input conditions without treating them as readiness.
 4. After request reports `scheduled`, end the turn immediately. Additional user input cancels the pending reset. Start no more
    tools, workers, or background waits. The helper waits for a subsequent Stop,
    no tracked active resources, fresh lifecycle telemetry, idle/done Herdr status,
@@ -165,6 +167,10 @@ python3 /opt/switch/switch.py request \
 python3 /opt/switch/switch.py status \
   --state-dir /path/reset-state --request-id REQUEST_ID
 ```
+
+The caller-pane check prevents accidental cross-pane requests; it is not OS-level
+authentication. Code with arbitrary local execution can change its environment.
+Keep command permissions narrow and do not grant environment overrides.
 
 All deadlines are finite, from 1 to 3600 seconds. `clear-deadline` gives clear
 confirmation and subsequent replacement readiness separate intervals of that

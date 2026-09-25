@@ -92,6 +92,8 @@ class FakeHerdr:
 
 class SwitchTests(unittest.TestCase):
     def setUp(self):
+        self.caller_env = patch.dict(os.environ, {'HERDR_PANE_ID': 'p1'})
+        self.caller_env.start()
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.h = FakeHerdr(self.root)
@@ -110,6 +112,7 @@ class SwitchTests(unittest.TestCase):
 
     def tearDown(self):
         self.temp.cleanup()
+        self.caller_env.stop()
 
     def write_cp(self):
         self.cp.write_text(json.dumps(self.c))
@@ -219,15 +222,25 @@ class SwitchTests(unittest.TestCase):
 
     def test_active_tool_and_worker_even_when_herdr_idle(self):
         self.request()
+        s.hook(self.root, "p1", {"hook_event_name": "Stop", "session_id": "old"})
         s.hook(self.root, "p1", {"hook_event_name": "PreToolUse", "session_id": "old",
                                "tool_use_id": "tool-1", "tool_name": "Bash"})
-        s.hook(self.root, "p1", {"hook_event_name": "Stop", "session_id": "old"})
         self.assertFalse(s.readiness(self.h, self.r, "old", after_stop=True)[0])
         s.hook(self.root, "p1", {"hook_event_name": "PostToolUse", "session_id": "old", "tool_use_id": "tool-1"})
+        s.hook(self.root, "p1", {"hook_event_name": "Stop", "session_id": "old"})
         s.hook(self.root, "p1", {"hook_event_name": "SubagentStart", "session_id": "old", "agent_id": "worker-1"})
         self.assertFalse(s.readiness(self.h, self.r, "old", after_stop=True)[0])
         s.hook(self.root, "p1", {"hook_event_name": "SubagentStop", "session_id": "old", "agent_id": "worker-1"})
         self.assertTrue(s.readiness(self.h, self.r, "old", after_stop=True)[0])
+
+    def test_blocked_tool_without_post_event_does_not_stall_reset(self):
+        # Another PreToolUse hook or auto mode denies the call: no PostToolUse follows.
+        s.hook(self.root, "p1", {"hook_event_name": "PreToolUse", "session_id": "old",
+                               "tool_use_id": "blocked-1", "tool_name": "Write"})
+        self.assertIn("blocked-1", s.telemetry(self.root, "p1", "old")["tools"])
+        self.request()
+        self.assertEqual(s.telemetry(self.root, "p1", "old")["tools"], {})
+        self.assertEqual(self.run_request()["outcome"], "resumed")
 
     def test_changed_target_and_final_recheck(self):
         self.request()

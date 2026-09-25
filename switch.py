@@ -20,7 +20,7 @@ import tempfile
 import time
 import uuid
 
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 EVENTS = ("SessionStart", "UserPromptSubmit", "Stop", "PreToolUse", "PostToolUse",
           "PostToolUseFailure", "SubagentStart", "SubagentStop", "PermissionRequest")
 ID_RE = re.compile(r"^[a-zA-Z0-9_.:-]{1,160}$")
@@ -163,8 +163,12 @@ def hook(root, pane, event, now=None):
             match = re.match(r"\[Switch automation request ([a-f0-9-]{36})\]", prompt)
             state["submitted"] = {"id": match[1], "at": now, "sha256": digest(prompt.encode())} if match else None
         elif name == "Stop":
+            # No foreground tool outlives its turn. Calls blocked by another
+            # PreToolUse hook or denied by auto mode never emit PostToolUse.
+            # Workers are kept: background subagents can outlive the turn.
             state["stopped_at"] = now
             state["blocked"] = False
+            state["tools"] = {}
         elif name == "PermissionRequest":
             state["blocked"] = True
             state["stopped_at"] = None
@@ -361,7 +365,23 @@ def checkpoint(path):
     return c, raw
 
 
+def caller_pane(pane):
+    """Require inherited caller context, not just a valid caller-selected target.
+
+    This is not OS-level authentication: callers with arbitrary local execution
+    can alter their environment. A narrow allow rule must not authorize an
+    environment override.
+    """
+    caller = os.environ.get("HERDR_PANE_ID")
+    if not caller:
+        raise Refused("HERDR_PANE_ID missing; run Switch from the calling Herdr pane")
+    identifier(caller)
+    if caller != pane:
+        raise Refused("requested pane differs from caller pane")
+
+
 def preflight(h, root, pane, sid, cp):
+    caller_pane(pane)
     c, raw = checkpoint(cp)
     row = target(h.agent(pane), pane, sid)
     t = telemetry(root, pane, sid)
@@ -455,6 +475,7 @@ def request_lock(path, label):
 
 
 def create(h, root, pane, sid, cp, resume, idle=300, clear=60, ack=120, retry_of=None):
+    caller_pane(pane)
     identifier(pane)
     identifier(sid)
     if not resume.strip() or len(resume) > 4000 or any(ord(c) < 32 and c not in "\n\t" for c in resume):
