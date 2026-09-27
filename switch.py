@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+from datetime import datetime
 import fcntl
 import hashlib
 import json
@@ -20,7 +21,7 @@ import tempfile
 import time
 import uuid
 
-VERSION = "0.3.1"
+VERSION = "0.3.2"
 EVENTS = ("SessionStart", "UserPromptSubmit", "Stop", "PreToolUse", "PostToolUse",
           "PostToolUseFailure", "SubagentStart", "SubagentStop", "PermissionRequest")
 ID_RE = re.compile(r"^[a-zA-Z0-9_.:-]{1,160}$")
@@ -135,6 +136,106 @@ def clear_context(root, pane, previous, sid, event, now):
             "this context alone does not request a checkpoint, reset, acknowledgment or wait.")
 
 
+WORKER_TRANSCRIPT_LIMIT = 8 * 1024 * 1024
+
+
+def terminal_worker(name, args, result):
+    """Only structured harness success is terminal evidence, never prose."""
+    if not isinstance(args, dict) or not isinstance(result, dict):
+        return None
+    if name == "TaskStop":
+        wid = args.get("task_id")
+        if (not isinstance(wid, str) or not ID_RE.fullmatch(wid)
+                or result.get("task_id") != wid or result.get("task_type") != "local_agent"
+                or not isinstance(result.get("message"), str)
+                or not result["message"].startswith("Successfully stopped task: " + wid + " (")):
+            return None
+        return wid
+    if name == "Agent" and result.get("status") == "completed" and not result.get("isAsync"):
+        wid = result.get("agentId")
+        return wid if isinstance(wid, str) and ID_RE.fullmatch(wid) and args.get("resume", wid) == wid else None
+    return None
+
+
+def transcript_version(path):
+    try:
+        st = Path(path).stat()
+        return (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns)
+    except (OSError, TypeError):
+        return None
+
+
+def remaining_workers(t):
+    """Repair legacy TaskStop entries from paired parent tool records.
+
+    Keep raw telemetry unchanged. No TTL, checkpoint claim, notification text
+    or interrupted child transcript can declare a worker finished. Unknown or
+    changed evidence leaves the worker blocking. Never persist transcript text.
+    """
+    workers = t.get("workers", {})
+    path = t.get("transcript_path")
+    if not workers or not path:
+        return workers, None
+    try:
+        p = Path(path)
+        if not p.is_absolute() or p.name != t["session_id"] + ".jsonl":
+            return workers, None
+        fd = os.open(p, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+        with os.fdopen(fd, "rb") as stream:
+            st = os.fstat(stream.fileno())
+            if not stat.S_ISREG(st.st_mode) or st.st_size > WORKER_TRANSCRIPT_LIMIT:
+                return workers, None
+            version = (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns)
+            raw = stream.read(WORKER_TRANSCRIPT_LIMIT + 1)
+        if len(raw) != st.st_size or not raw.endswith(b"\n") or transcript_version(p) != version:
+            return workers, None
+        calls, ended = {}, set()
+        active_since = dict(workers)
+        resumed_at = {}
+        for row_index, line in enumerate(raw.splitlines()):
+            row = json.loads(line)
+            if row.get("sessionId") != t["session_id"] or row.get("isSidechain"):
+                continue
+            content = row.get("message", {}).get("content", [])
+            if not isinstance(content, list):
+                continue
+            for block_index, block in enumerate(content):
+                if not isinstance(block, dict):
+                    continue
+                if row.get("type") == "assistant" and block.get("type") == "tool_use":
+                    dt = datetime.fromisoformat(row["timestamp"].replace("Z", "+00:00"))
+                    if dt.tzinfo is None:
+                        return workers, None
+                    at = dt.timestamp()
+                    args = block.get("input", {})
+                    if not isinstance(args, dict):
+                        return workers, None
+                    name = block.get("name")
+                    resumed = args.get("resume") if name == "Agent" else args.get("to") if name == "SendMessage" else None
+                    if isinstance(resumed, str) and resumed in workers:
+                        ended.discard(resumed)
+                        active_since[resumed] = max(active_since[resumed], at)
+                        resumed_at[resumed] = (row_index, block_index)
+                    calls[(row.get("uuid"), block["id"])] = (name, args, at, (row_index, block_index))
+                elif row.get("type") == "user" and block.get("type") == "tool_result" and not block.get("is_error"):
+                    call = calls.get((row.get("sourceToolAssistantUUID"), block.get("tool_use_id")))
+                    if not call or call[0] != "TaskStop":
+                        continue
+                    wid = terminal_worker(call[0], call[1], row.get("toolUseResult"))
+                    if wid not in workers:
+                        continue
+                    dt = datetime.fromisoformat(row["timestamp"].replace("Z", "+00:00"))
+                    # Blocks in a row share a timestamp; only transcript order
+                    # can distinguish a pending old stop from a fresh one.
+                    if (dt.tzinfo is not None
+                            and call[3] > resumed_at.get(wid, (-1, -1))
+                            and active_since[wid] <= call[2] <= dt.timestamp() <= time.time()):
+                        ended.add(wid)
+        return {wid: at for wid, at in workers.items() if wid not in ended}, version
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return workers, None
+
+
 def hook(root, pane, event, now=None):
     """Store minimal lifecycle evidence, never tool arguments or transcripts."""
     now = time.time() if now is None else now
@@ -150,6 +251,10 @@ def hook(root, pane, event, now=None):
             previous = state if state.get("session_id") == sid else {}
             state = {"session_id": sid, "started_at": now, "source": event.get("source"),
                      "tools": previous.get("tools", {}), "workers": previous.get("workers", {}),
+                     "worker_stops": previous.get("worker_stops", {}),
+                     "agent_calls": previous.get("agent_calls", {}),
+                     "transcript_path": previous.get("transcript_path"),
+                     "last_worker_stop": previous.get("last_worker_stop"),
                      "stopped_at": None, "blocked": previous.get("blocked", False),
                      "cwd": event.get("cwd"), "model": event.get("model"),
                      "permission_mode": event.get("permission_mode"), "submitted": None,
@@ -157,6 +262,9 @@ def hook(root, pane, event, now=None):
         elif state.get("session_id") != sid:
             # Events without a SessionStart for this exact session remain unknown.
             return
+        transcript = event.get("transcript_path")
+        if isinstance(transcript, str) and Path(transcript).is_absolute() and Path(transcript).name == sid + ".jsonl":
+            state["transcript_path"] = transcript
         if name == "UserPromptSubmit":
             state.update(stopped_at=None, blocked=False, user_prompt_at=now)
             prompt = normalized_prompt(event.get("prompt", ""))
@@ -169,19 +277,42 @@ def hook(root, pane, event, now=None):
             state["stopped_at"] = now
             state["blocked"] = False
             state["tools"] = {}
+            state["worker_stops"] = {}
+            state["agent_calls"] = {}
         elif name == "PermissionRequest":
             state["blocked"] = True
             state["stopped_at"] = None
         elif name == "PreToolUse":
             state["tools"][identifier(event.get("tool_use_id"))] = event.get("tool_name")
             state["stopped_at"] = None
+            if event.get("tool_name") == "Agent":
+                state.setdefault("agent_calls", {})[event["tool_use_id"]] = {}
+            args = event.get("tool_input", {})
+            wid = args.get("task_id") if isinstance(args, dict) else None
+            if event.get("tool_name") == "TaskStop" and isinstance(wid, str) and wid in state["workers"]:
+                state.setdefault("worker_stops", {})[event["tool_use_id"]] = [wid, state["workers"][wid]]
         elif name in ("PostToolUse", "PostToolUseFailure"):
-            state["tools"].pop(identifier(event.get("tool_use_id")), None)
+            call = identifier(event.get("tool_use_id"))
+            tool = state["tools"].pop(call, None)
+            stop = state.setdefault("worker_stops", {}).pop(call, None)
+            generations = state.setdefault("agent_calls", {}).pop(call, {})
+            if name == "PostToolUse" and tool == event.get("tool_name"):
+                wid = terminal_worker(tool, event.get("tool_input", {}), event.get("tool_response"))
+                same_generation = (wid in generations and generations[wid] == state["workers"].get(wid)
+                                   if tool == "Agent" else stop == [wid, state["workers"].get(wid)])
+                if wid and same_generation:
+                    state["workers"].pop(wid, None)
             state["blocked"] = False
         elif name == "SubagentStart":
-            state["workers"][identifier(event.get("agent_id"))] = now
+            wid = identifier(event.get("agent_id"))
+            state["workers"][wid] = now
+            for generations in state.get("agent_calls", {}).values():
+                # Bind a completion to the first generation seen by that call.
+                generations.setdefault(wid, now)
         elif name == "SubagentStop":
-            state["workers"].pop(identifier(event.get("agent_id")), None)
+            wid = identifier(event.get("agent_id"))
+            state["workers"].pop(wid, None)
+            state["last_worker_stop"] = {"agent_id": wid, "agent_type": event.get("agent_type"), "at": now}
         if event.get("permission_mode"):
             state["permission_mode"] = event["permission_mode"]
         state["updated_at"] = now
@@ -573,13 +704,14 @@ def readiness(h, r, sid, after_stop=False, clock=time.time):
     if not all(key in t for key in ("tools", "workers", "blocked", "updated_at")):
         return False, "incomplete lifecycle telemetry"
     if not 0 <= clock() - t.get("updated_at", 0) <= 120:
-        return False, "lifecycle telemetry stale"
+        return False, "lifecycle telemetry stale" + ("; workers: " + ", ".join(sorted(t["workers"])) if t["workers"] else "")
     if after_stop and t.get("user_prompt_at", 0) > r["requested_at"]:
         raise Refused("another user prompt arrived after scheduling")
     if after_stop and (t.get("stopped_at") or 0) <= r["requested_at"]:
         return False, "initiating turn has not stopped after scheduling"
-    if t.get("tools") or t.get("workers") or t.get("blocked"):
-        return False, "active tools/workers or permission dialog"
+    workers, evidence = remaining_workers(t)
+    if t.get("tools") or workers or t.get("blocked"):
+        return False, "active tools/workers or permission dialog" + ("; workers: " + ", ".join(sorted(workers)) if workers else "")
     if row.get("agent_status") not in ("idle", "done"):
         return False, "seat is " + str(row.get("agent_status"))
     state = input_state(h.read(r["pane"]))
@@ -593,7 +725,7 @@ def readiness(h, r, sid, after_stop=False, clock=time.time):
     if final.get("agent_status") not in ("idle", "done"):
         return False, "seat became busy during input read"
     latest = telemetry(r["root"], r["pane"], sid)
-    if latest != t:
+    if latest != t or (evidence is not None and transcript_version(t["transcript_path"]) != evidence):
         return False, "lifecycle changed during input read"
     return True, "ready"
 

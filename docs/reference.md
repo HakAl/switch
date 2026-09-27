@@ -78,8 +78,8 @@ Claude session under Herdr to obtain its SessionStart record.
 Both setups use `HERDR_PANE_ID` from Herdr and `session_id` from hook input.
 Required events are SessionStart, UserPromptSubmit, Stop, PreToolUse,
 PostToolUse, PostToolUseFailure, SubagentStart, SubagentStop and PermissionRequest.
-Lifecycle snapshots contain identifiers and state, not tool arguments or prompt
-text; the companion separately stores the inputs disclosed above.
+Lifecycle snapshots contain identifiers, worker generations, the parent transcript
+path and state, not tool arguments or prompt text; the companion separately stores the inputs disclosed above.
 Use a private local state directory; avoid shared, synced or network storage.
 
 ## Permissions for the complete path
@@ -193,6 +193,22 @@ not a checkpoint. Export and verify the actual content first. Authority source
 paths reference the operator's real instructions/grants, with their original
 scope and expiry; agent-authored notes are separate and cannot extend a grant.
 Empty resource inventories mean explicitly none, not unknown.
+
+### Worker completion evidence (0.3.2)
+
+A successful TaskStop for a local agent can close its tracked worker even when
+Claude emits no SubagentStop. A completed foreground Agent result must match an
+observed worker generation. For older stale entries, Switch reads at most 8 MiB
+of the parent transcript and requires paired structured TaskStop success, matching
+session identity, timestamps and transcript order. Resuming a worker invalidates
+earlier stop evidence, including when timestamps tie. Raw transcript content is
+never copied into lifecycle state. Missing, incomplete or changing evidence keeps
+the worker blocking. Refusal reasons identify remaining workers.
+
+Parent Stop clears foreground tools but does not end workers. Useful live or
+unknown work still blocks reset; the 300-second default is unchanged. Finish work
+before requesting reset, or explicitly choose a longer bounded idle deadline.
+Do not delete worker state or cancel useful work just to meet the deadline.
 
 ## Results and recovery
 

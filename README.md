@@ -9,6 +9,9 @@ Choose a context limit such as `250k` tokens or `25%`. Switch asks the agent to
 finish active work and save a checkpoint before resetting. The limit is a soft
 threshold; finishing work can take it over the target.
 
+Release [0.3.2](docs/release-0.3.2.md) fixes stale worker bookkeeping while keeping
+live and unknown work as reset blockers.
+
 ## Requirements
 
 - Python 3.9+, with no pip dependencies.

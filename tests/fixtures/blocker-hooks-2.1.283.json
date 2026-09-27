@@ -1,0 +1,149 @@
+{
+  "version": "2.1.283",
+  "description": "Derived from an isolated Claude Code 2.1.283 foreground Agent lifecycle: successful Bash, failed Bash, hook-denied Write, completion, SendMessage resume. All identities are synthetic and timestamps are shifted, preserving ordering and intervals. Prompts, commands, output and paths are omitted.",
+  "events": [
+    {
+      "_observed_at": 1600000000.0,
+      "hook_event_name": "SessionStart",
+      "session_id": "fixture-id-1",
+      "source": "startup"
+    },
+    {
+      "_observed_at": 1600000004.909745,
+      "hook_event_name": "PreToolUse",
+      "session_id": "fixture-id-1",
+      "tool_name": "Agent",
+      "tool_use_id": "fixture-id-2",
+      "permission_mode": "default"
+    },
+    {
+      "_observed_at": 1600000004.940851,
+      "hook_event_name": "SubagentStart",
+      "session_id": "fixture-id-1",
+      "agent_id": "fixture-id-3",
+      "agent_type": "general-purpose"
+    },
+    {
+      "_observed_at": 1600000007.2051122,
+      "hook_event_name": "PreToolUse",
+      "session_id": "fixture-id-1",
+      "agent_id": "fixture-id-3",
+      "agent_type": "general-purpose",
+      "tool_name": "Bash",
+      "tool_use_id": "fixture-id-4",
+      "permission_mode": "default"
+    },
+    {
+      "_observed_at": 1600000007.9869442,
+      "hook_event_name": "PostToolUse",
+      "session_id": "fixture-id-1",
+      "agent_id": "fixture-id-3",
+      "agent_type": "general-purpose",
+      "tool_name": "Bash",
+      "tool_use_id": "fixture-id-4",
+      "permission_mode": "default",
+      "tool_response": {}
+    },
+    {
+      "_observed_at": 1600000009.932641,
+      "hook_event_name": "PreToolUse",
+      "session_id": "fixture-id-1",
+      "agent_id": "fixture-id-3",
+      "agent_type": "general-purpose",
+      "tool_name": "Bash",
+      "tool_use_id": "fixture-id-5",
+      "permission_mode": "default"
+    },
+    {
+      "_observed_at": 1600000009.977823,
+      "hook_event_name": "PostToolUseFailure",
+      "session_id": "fixture-id-1",
+      "agent_id": "fixture-id-3",
+      "agent_type": "general-purpose",
+      "tool_name": "Bash",
+      "tool_use_id": "fixture-id-5",
+      "permission_mode": "default",
+      "is_interrupt": false
+    },
+    {
+      "_observed_at": 1600000011.9213421,
+      "hook_event_name": "PreToolUse",
+      "session_id": "fixture-id-1",
+      "agent_id": "fixture-id-3",
+      "agent_type": "general-purpose",
+      "tool_name": "Write",
+      "tool_use_id": "fixture-id-6",
+      "permission_mode": "default"
+    },
+    {
+      "_observed_at": 1600000014.9303071,
+      "hook_event_name": "SubagentStop",
+      "session_id": "fixture-id-1",
+      "agent_id": "fixture-id-3",
+      "agent_type": "general-purpose",
+      "permission_mode": "default"
+    },
+    {
+      "_observed_at": 1600000014.978701,
+      "hook_event_name": "PostToolUse",
+      "session_id": "fixture-id-1",
+      "tool_name": "Agent",
+      "tool_use_id": "fixture-id-2",
+      "permission_mode": "default",
+      "tool_response": {
+        "status": "completed",
+        "agentId": "fixture-id-3"
+      }
+    },
+    {
+      "_observed_at": 1600000017.3221662,
+      "hook_event_name": "PreToolUse",
+      "session_id": "fixture-id-1",
+      "tool_name": "SendMessage",
+      "tool_use_id": "fixture-id-7",
+      "permission_mode": "default",
+      "tool_input": {
+        "to": "fixture-id-3"
+      }
+    },
+    {
+      "_observed_at": 1600000017.35381,
+      "hook_event_name": "SubagentStart",
+      "session_id": "fixture-id-1",
+      "agent_id": "fixture-id-3",
+      "agent_type": "general-purpose"
+    },
+    {
+      "_observed_at": 1600000017.353812,
+      "hook_event_name": "PostToolUse",
+      "session_id": "fixture-id-1",
+      "tool_name": "SendMessage",
+      "tool_use_id": "fixture-id-7",
+      "permission_mode": "default",
+      "tool_response": {},
+      "tool_input": {
+        "to": "fixture-id-3"
+      }
+    },
+    {
+      "_observed_at": 1600000019.2027361,
+      "hook_event_name": "SubagentStop",
+      "session_id": "fixture-id-1",
+      "agent_id": "fixture-id-3",
+      "agent_type": "general-purpose",
+      "permission_mode": "default"
+    },
+    {
+      "_observed_at": 1600000022.0705442,
+      "hook_event_name": "Stop",
+      "session_id": "fixture-id-1",
+      "permission_mode": "default"
+    },
+    {
+      "_observed_at": 1600000025.428631,
+      "hook_event_name": "Stop",
+      "session_id": "fixture-id-1",
+      "permission_mode": "default"
+    }
+  ]
+}
