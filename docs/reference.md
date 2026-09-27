@@ -79,7 +79,8 @@ Both setups use `HERDR_PANE_ID` from Herdr and `session_id` from hook input.
 Required events are SessionStart, UserPromptSubmit, Stop, PreToolUse,
 PostToolUse, PostToolUseFailure, SubagentStart, SubagentStop and PermissionRequest.
 Lifecycle snapshots contain identifiers, worker generations, the parent transcript
-path and state, not tool arguments or prompt text; the companion separately stores the inputs disclosed above.
+path and state, not tool arguments or prompt text; the companion separately stores
+the inputs disclosed above.
 Use a private local state directory; avoid shared, synced or network storage.
 
 ## Permissions for the complete path

@@ -16,8 +16,16 @@ No automatic cancellation or retry is added.
 
 ## Verification
 
-Pending exported-tree, fresh-clone and disposable live-flow checks. Results will
-be filled in before the final local candidate is approved for publication.
+- All 145 tests pass on Python 3.9.6 and 3.14.7.
+- Fresh-clone version/help, installation dry-run, install, required permissions,
+  status, uninstall and execution of all nine hooks pass on both interpreters.
+- The disposable live check stopped at an auto-classifier denial of an extra
+  process-polling command, before TaskStop or reset. The worker finished normally.
+  No complete live reset/resume result is claimed for 0.3.2; this remains a
+  validation gap before deciding to publish.
+- Public files are allowlisted; private reports and raw captures are excluded.
+  Engine and companion versions agree. Historical install-check.txt remains dated
+  0.2.0, not fresh output for this release.
 
 The new public fixture derives from measured hook events but substitutes synthetic
 identifiers and shifted timestamps. Private diagnoses, raw captures and review

@@ -2,7 +2,7 @@
 
 ## Automated coverage
 
-The v0.3.1 suite has 115 tests, passing on macOS with Python 3.9.6 and 3.14.7.
+The v0.3.2 suite has 145 tests, passing on macOS with Python 3.9.6 and 3.14.7.
 Tests use fake Herdr, hook input, clocks and a detached subprocess with a fake
 executable. They do not read or send to live panes. Run from the checkout:
 
@@ -16,8 +16,47 @@ uncertain sends, wrong acknowledgments, permission-mode changes, abandoned helpe
 session isolation, malformed context samples, threshold feedback, scoped installation
 and restoration of existing settings. New regressions cover denied tools without
 completion events, missing or mismatched caller panes, and live-session mismatch.
-The v0.3.1 installation check is summarized below. The [v0.2 release check](release-0.2.0.md) preserves the earlier installation
+The v0.3.2 installation check is summarized below. The [v0.2 release check](release-0.2.0.md) preserves the earlier installation
 transcript and its 98-test baseline.
+
+## Release 0.3.2, September 27, 2026
+
+**Automated checks passed:** all 145 tests on Python 3.9.6 and 3.14.7, including
+30 tests added since 0.3.1. New coverage includes structured TaskStop and Agent
+completion, legacy transcript reconciliation, equal-timestamp resume ordering,
+missing/failed/mismatched terminal evidence, parent/child isolation, denied tools,
+permission latches and live/unknown workers remaining blocking.
+
+A fresh local clone of the public candidate passed version/help, documented
+installation dry-run, installation, required-permission merging, status and
+uninstall on both interpreters. All nine generated lifecycle hook commands were
+also invoked successfully with synthetic inputs, for both the installed companion
+and manual setup. Uninstall preserved permissions. These isolated checks did not
+copy authentication or alter real user settings. Engine and companion report 0.3.2.
+
+**Live reset check incomplete:** a disposable Herdr 0.7.5 / Claude Code 2.1.283
+session used Python 3.14.7, Opus 5.5, a Haiku 4.5 test worker and auto permission
+mode. The intended flow was to stop one disposable background worker, verify its
+wait process ended, then reset, acknowledge and write a result marker. Before
+TaskStop, the parent issued an extra process-polling Bash command that the auto
+classifier denied. The test stopped at that denial. The worker finished normally;
+no TaskStop, reset request, clear, bootstrap, acknowledgment or result marker
+occurred. Launch settings remained unchanged and the disposable pane was closed.
+No permission widening or retry was performed.
+
+This release therefore has unit coverage for stopped-worker reset behavior but
+no completed live end-to-end reset on this exact candidate. Earlier release live
+results below are historical evidence, not a substitute. Equal-timestamp resume
+cases use deterministic transcript fixtures and fake transport. No fatal harness
+crash or real interactive permission dialog was induced. Threshold-triggered
+reset and plugin behavior were not exercised.
+
+The public lifecycle fixture derives from an isolated measured sequence but uses
+synthetic identities and shifted timestamps; event ordering, time intervals and
+needed result structure are retained. It contains no captured prompt, command,
+file content, path or live identity. Private diagnoses and raw evidence remain
+outside public Git history. [install-check.txt](install-check.txt) is explicitly
+retained as the dated 0.2.0 installation transcript.
 
 ## Release 0.3.1, September 25, 2026
 
