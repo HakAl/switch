@@ -22,23 +22,24 @@ No live session is reset during installation.
 
 ### Automatic context-limit hooks
 
-Set these paths for the project you want to manage and a private state directory:
+From the project you want to manage:
 
 ```sh
-SWITCH_PROJECT=/absolute/path/to/your/project
-SWITCH_STATE=/absolute/path/to/private/switch-state
-python3 "$SWITCH_DIR/switch_auto.py" install 250k \
-  --project "$SWITCH_PROJECT" --state-dir "$SWITCH_STATE" --dry-run
-python3 "$SWITCH_DIR/switch_auto.py" install 250k \
-  --project "$SWITCH_PROJECT" --state-dir "$SWITCH_STATE"
-python3 "$SWITCH_DIR/switch_auto.py" status --project "$SWITCH_PROJECT"
+cd /absolute/path/to/your/project
+python3 "$SWITCH_DIR/switch_auto.py" install --dry-run
+python3 "$SWITCH_DIR/switch_auto.py" install
+python3 "$SWITCH_DIR/switch_auto.py" status
 ```
 
-The installer merges hooks and wraps the effective command statusLine in
-`$SWITCH_PROJECT/.claude/settings.local.json`; it preserves existing permissions.
-It prints `required_permissions`. Review those exact entries and add them to
-`permissions.allow` in that project's settings file, preserving existing entries.
-Also permit reads of the original task instructions and authority sources, and
+The default limit is 25% of the reported context window and the default state
+directory is `$SWITCH_STATE_DIR`, otherwise `~/.local/state/switch`. Pass a limit
+such as `40%` or `250k`, `--project`, or `--state-dir` to override them.
+
+The installer merges hooks, wraps the effective command statusLine, and adds the
+missing `required_permissions` to `permissions.allow` in the project's
+`.claude/settings.local.json`, keeping existing entries, key order, indentation
+and line endings. It warns before normalizing formatting it cannot reproduce. Review the
+`permissions_to_add` that `--dry-run` lists before installing. Also permit reads of the original task instructions and authority sources, and
 only the actions the task needs. See [permissions below](#permissions-for-the-complete-path).
 A Bash allow rule does not grant OS filesystem or socket access.
 
@@ -53,10 +54,10 @@ For user scope, status, uninstall and retention details, see [automatic setup](a
 To remove this project installation:
 
 ```sh
-python3 "$SWITCH_DIR/switch_auto.py" uninstall --project "$SWITCH_PROJECT"
+python3 "$SWITCH_DIR/switch_auto.py" uninstall
 ```
 
-Uninstall preserves state and backups for recovery. Do not delete claims while
+Uninstall removes the permissions it added and preserves state and backups for recovery. Do not delete claims while
 an old session might be resumed, or change state roots to bypass a claim.
 
 ### Manual-trigger hooks only
@@ -65,6 +66,7 @@ Skip this section if you installed the companion: it already records lifecycle h
 Set `SWITCH_STATE` to the same private state directory used by requests:
 
 ```sh
+SWITCH_STATE=/absolute/path/to/private/switch-state
 python3 "$SWITCH_DIR/switch.py" hooks --state-dir "$SWITCH_STATE"
 ```
 

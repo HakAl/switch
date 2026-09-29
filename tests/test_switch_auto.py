@@ -100,6 +100,148 @@ class AutoTests(unittest.TestCase):
         a.install('project', self.project, '250k', self.root, True)
         self.assertEqual(list(self.project.iterdir()), [])
 
+    def test_default_limit_and_reinstall_keeps_installed_limit(self):
+        result = a.install('project', self.project, None, self.root)
+        self.assertEqual((result['limit']['kind'], result['limit']['value']), ('percent', 25))
+        self.assertIn('default 25%', result['notices'][0])
+        a.install('project', self.project, '40%', self.root)
+        result = a.install('project', self.project, None, self.root)
+        self.assertEqual(result['limit']['value'], 40)
+        self.assertNotIn('default', result['notices'][0])
+        self.assertEqual(a.read_config(self.manifest)['limit']['value'], 40)
+
+    def test_cli_install_without_limit(self):
+        with patch('sys.stdout'):
+            self.assertEqual(a.main(['install', '--project', str(self.project),
+                                     '--state-dir', str(self.root)]), 0)
+        self.assertEqual(a.read_config(self.manifest)['limit']['label'], '25%')
+
+    def test_dry_run_reports_default_limit_and_permissions_to_add(self):
+        sw.atomic(self.settings, {'permissions': {'allow': ['Read']}})
+        before = self.settings.read_bytes()
+        result = a.install('project', self.project, None, self.root, True)
+        self.assertEqual(result['limit']['value'], 25)
+        self.assertEqual(result['permissions_to_add'], a.permissions({'root': str(self.root)}))
+        self.assertEqual(self.settings.read_bytes(), before)
+        self.assertEqual(sorted(p.name for p in self.settings.parent.iterdir()), ['settings.local.json'])
+
+    def test_settings_formatting_round_trips_byte_for_byte(self):
+        raws = [b'{\n    "zeta": 1,\n    "permissions": {\n        "allow": [\n            "Read"\n'
+                b'        ]\n    },\n    "alpha": "caf\xc3\xa9"\n}\n',
+                b'{\n\t"model": "x",\n\t"env": {\n\t\t"A": "1"\n\t}\n}',
+                b'{"zeta":1,"alpha":"x"}',
+                b'{\n  "name": "caf\\u00e9"\n}\n']
+        for raw in raws:
+            with self.subTest(raw=raw):
+                self.settings.parent.mkdir(exist_ok=True)
+                self.settings.write_bytes(raw)
+                self.install()
+                text = self.settings.read_text()
+                if b'zeta' in raw:
+                    self.assertLess(text.index('zeta'), text.index('alpha'))
+                a.uninstall('project', self.project)
+                self.assertEqual(self.settings.read_bytes(), raw)
+
+    def test_existing_statusline_key_order_round_trips(self):
+        raw = (json.dumps({'model': 'x', 'statusLine': {'type': 'command', 'command': 'cat', 'padding': 2},
+                           'env': {'Z': '1', 'A': '2'}}, indent=2) + '\n').encode()
+        self.settings.parent.mkdir()
+        self.settings.write_bytes(raw)
+        dry = a.install('project', self.project, '250k', self.root, True)
+        result = a.install('project', self.project, '250k', self.root)
+        self.assertFalse(any('normalizes' in n for n in dry['notices'] + result['notices']))
+        self.assertTrue(a.uninstall('project', self.project)['original_statusline_restored'])
+        self.assertEqual(self.settings.read_bytes(), raw)
+
+    def test_crlf_line_endings_round_trip(self):
+        raw = b'{\r\n  "model": "x"\r\n}\r\n'
+        self.settings.parent.mkdir()
+        self.settings.write_bytes(raw)
+        result = a.install('project', self.project, '250k', self.root)
+        self.assertFalse(any('normalizes' in n for n in result['notices']))
+        self.assertNotIn(b'\n', self.settings.read_bytes().replace(b'\r\n', b''))
+        a.uninstall('project', self.project)
+        self.assertEqual(self.settings.read_bytes(), raw)
+
+    def test_unreproducible_formatting_is_announced_and_backed_up(self):
+        for raw in [b'{"label":"\\u0041"}', b'{\n  "a" : 1\n}\n', b'{"a": 1, "a": 2}']:
+            with self.subTest(raw=raw):
+                self.settings.parent.mkdir(exist_ok=True)
+                self.settings.write_bytes(raw)
+                dry = a.install('project', self.project, '250k', self.root, True)
+                self.assertTrue(any('normalizes' in n for n in dry['notices']))
+                result = a.install('project', self.project, '250k', self.root)
+                self.assertTrue(any('normalizes' in n for n in result['notices']))
+                self.assertEqual(Path(result['backup']).read_bytes(), raw)
+                self.assertNotIn('notices', a.uninstall('project', self.project))
+
+    def test_uninstall_backs_up_before_normalizing_later_edits(self):
+        self.install()
+        edited = self.settings.read_bytes().replace(b'"statusLine": ', b'"statusLine" : ')
+        self.settings.write_bytes(edited)
+        result = a.uninstall('project', self.project)
+        self.assertEqual(Path(result['backup']).read_bytes(), edited)
+        self.assertIn('normalizes', result['notices'][0])
+
+    def test_permissions_added_then_removed_exactly(self):
+        wanted = a.permissions({'root': str(self.root)})
+        sw.atomic(self.settings, {'permissions': {'allow': ['Read', wanted[0]], 'deny': ['Bash(rm *)']}})
+        result = a.install('project', self.project, '250k', self.root)
+        self.assertEqual(result['added_permissions'], wanted[1:])
+        allow = sw.load(self.settings)['permissions']['allow']
+        self.assertEqual(allow, ['Read'] + wanted)
+        data = sw.load(self.settings)
+        data['permissions']['allow'].append('Bash(ls)')
+        sw.atomic(self.settings, data)
+        a.uninstall('project', self.project)
+        self.assertEqual(sw.load(self.settings)['permissions'],
+                         {'allow': ['Read', wanted[0], 'Bash(ls)'], 'deny': ['Bash(rm *)']})
+
+    def test_permission_keys_created_by_install_are_removed(self):
+        result = a.install('project', self.project, '250k', self.root)
+        self.assertIsNone(result['backup'])
+        self.assertEqual(sw.load(self.settings)['permissions']['allow'], a.permissions({'root': str(self.root)}))
+        a.uninstall('project', self.project)
+        self.assertNotIn('permissions', sw.load(self.settings))
+
+    def test_malformed_permissions_refuse_install_untouched(self):
+        for value in [[], {'allow': 'Read'}, {'allow': [None]}, {'allow': [{}]}, {'allow': ['Read', 1]}]:
+            with self.subTest(value=value):
+                sw.atomic(self.settings, {'permissions': value})
+                before = self.settings.read_bytes()
+                with self.assertRaises(sw.Refused): self.install()
+                self.assertEqual(self.settings.read_bytes(), before)
+                self.assertFalse(self.manifest.exists())
+
+    def test_uninstall_refuses_malformed_permissions_keeping_ownership(self):
+        self.install()
+        data = sw.load(self.settings)
+        for broken in [json.dumps(data['permissions']['allow']), None]:
+            with self.subTest(broken=broken):
+                if broken is None:
+                    data['permissions'] = ['Read']
+                else:
+                    data['permissions']['allow'] = broken
+                sw.atomic(self.settings, data)
+                before = self.settings.read_bytes()
+                with self.assertRaises(sw.Refused): a.uninstall('project', self.project)
+                self.assertEqual(self.settings.read_bytes(), before)
+                self.assertTrue(a.read_config(self.manifest)['added_permissions'])
+
+    def test_backup_is_byte_identical_and_never_overwritten(self):
+        first = b'{ "model" :   "old" }\n'
+        self.settings.parent.mkdir()
+        self.settings.write_bytes(first)
+        backup = Path(a.install('project', self.project, '250k', self.root)['backup'])
+        self.assertEqual(backup.read_bytes(), first)
+        self.assertEqual(backup.stat().st_mode & 0o777, 0o600)
+        a.uninstall('project', self.project)
+        self.settings.write_bytes(b'{"model": "new"}\n')
+        second = Path(a.install('project', self.project, '250k', self.root)['backup'])
+        self.assertNotEqual(second, backup)
+        self.assertEqual(backup.read_bytes(), first)
+        self.assertEqual(second.read_bytes(), b'{"model": "new"}\n')
+
     def test_malformed_settings_untouched(self):
         self.settings.parent.mkdir()
         self.settings.write_text('{bad')

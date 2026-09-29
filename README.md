@@ -5,12 +5,13 @@ same task in a fresh session. **[Herdr](https://herdr.dev) is required.**
 
 `checkpoint → clear → resume → acknowledge → continue`
 
-Choose a context limit such as `250k` tokens or `25%`. Switch asks the agent to
-finish active work and save a checkpoint before resetting. The limit is a soft
-threshold; finishing work can take it over the target.
+By default Switch resets at 25% of the reported context window; pass another
+limit such as `40%` or `250k` tokens. Switch asks the agent to finish active work
+and save a checkpoint before resetting. The limit is a soft threshold; finishing
+work can take it over the target.
 
-Release [0.3.2](docs/release-0.3.2.md) fixes stale worker bookkeeping while keeping
-live and unknown work as reset blockers.
+Release [0.4.0](docs/release-0.4.0.md) simplifies installation, adds scoped
+permissions automatically, and preserves settings with exact backups.
 
 ## Requirements
 
@@ -20,37 +21,36 @@ live and unknown work as reset blockers.
 
 ## Quick start
 
-Clone into a stable location, then choose the project to manage:
+Clone into a stable location, then install from the project to manage:
 
 ```sh
-git clone https://github.com/HakAl/switch.git
-cd switch
-SWITCH_DIR="$PWD"
-SWITCH_PROJECT=/absolute/path/to/your/project
-SWITCH_STATE=/absolute/path/to/private/switch-state
-
-python3 "$SWITCH_DIR/switch_auto.py" install 250k \
-  --project "$SWITCH_PROJECT" --state-dir "$SWITCH_STATE" --dry-run
-python3 "$SWITCH_DIR/switch_auto.py" install 250k \
-  --project "$SWITCH_PROJECT" --state-dir "$SWITCH_STATE"
+git clone https://github.com/HakAl/switch.git ~/switch
+cd /path/to/your/project
+python3 ~/switch/switch_auto.py install --dry-run   # preview, no writes
+python3 ~/switch/switch_auto.py install
 ```
 
-Add the installer’s `required_permissions` to the project’s
-`.claude/settings.local.json` under `permissions.allow`, preserving existing
-entries. Also allow reads of the task’s instruction and authority files, and the
-actions the task needs. The installer preserves permissions; auto permission mode
-alone does not authorize resets. See [permission setup](docs/reference.md#permissions-for-the-complete-path).
+By default Switch manages the current directory and keeps state in
+`$SWITCH_STATE_DIR`, otherwise `~/.local/state/switch`. Override with a limit
+argument, `--project`, `--state-dir`, or `--scope user`; see [automatic setup](docs/auto.md).
+
+The installer adds Switch’s own scoped `request`, `ack` and state-directory
+entries to `permissions.allow` in `.claude/settings.local.json`, after saving a
+byte-identical backup. It keeps your key order, indentation and line endings,
+warns first if your file uses formatting it cannot reproduce, such as `\u`
+escapes, and uninstall removes only the entries it added. You still allow reads of the task’s instruction
+and authority files, and the actions the task needs; auto permission mode alone
+does not authorize resets. See [permission setup](docs/reference.md#permissions-for-the-complete-path).
 
 Start a **fresh Claude session inside Herdr** in that project. Keep the scripts
 and interpreter at their installed paths. No session is reset during setup.
 
 ```sh
-python3 "$SWITCH_DIR/switch_auto.py" status --project "$SWITCH_PROJECT"
+python3 ~/switch/switch_auto.py status
 # Remove the hooks later; saved state remains:
-python3 "$SWITCH_DIR/switch_auto.py" uninstall --project "$SWITCH_PROJECT"
+python3 ~/switch/switch_auto.py uninstall
 ```
 
-For user-wide installation or other limits, see [automatic setup](docs/auto.md).
 For manual-trigger hooks and CLI commands, see the [reference](docs/reference.md).
 Run requests from the session being reset; Switch checks the inherited Herdr pane.
 

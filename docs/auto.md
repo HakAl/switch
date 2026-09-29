@@ -1,15 +1,17 @@
 # Automatic context limits
 
 Switch includes `switch_auto.py`, an installable Claude Code hook companion to the
-existing reset engine. Use an absolute input-context limit such as **250k** for a
-usual reset point between 200–300k tokens. `25%` is equivalent when Claude reports
-a 1M window. Percent limits use the actual reported window, without model-name
+existing reset engine. The default limit is **25%** of the reported context
+window, the middle of a usual 20–30% reset range: 250k tokens on a 1M window, 50k
+on a 200k window. Pass another percent, or an absolute input-context limit such as
+`250k`. Percent limits use the actual reported window, without model-name
 assumptions. This stays in the same Switch package; no pip install or daemon.
 
 From the repo where you want it:
 
 ```sh
-python3 /absolute/path/switch/switch_auto.py install 250k
+python3 /absolute/path/switch/switch_auto.py install        # default 25%
+python3 /absolute/path/switch/switch_auto.py install 40%    # or choose a limit
 python3 /absolute/path/switch/switch_auto.py status
 python3 /absolute/path/switch/switch_auto.py uninstall
 ```
@@ -18,7 +20,7 @@ Project scope is the default and writes `.claude/settings.local.json`. To apply
 across your user's Claude sessions instead:
 
 ```sh
-python3 /absolute/path/switch/switch_auto.py install 250k --scope user
+python3 /absolute/path/switch/switch_auto.py install --scope user
 python3 /absolute/path/switch/switch_auto.py status --scope user
 python3 /absolute/path/switch/switch_auto.py uninstall --scope user
 ```
@@ -28,7 +30,8 @@ User scope writes `$CLAUDE_CONFIG_DIR/settings.json`, otherwise
 `--project /absolute/repo` to select another repo, `--state-dir /private/path` at
 installation to choose storage, or `--dry-run` to inspect the target without
 writes. Default state is `$SWITCH_STATE_DIR`, otherwise `~/.local/state/switch`.
-Repeat install with a different limit to update it. Keep the installed scripts
+Repeat install with a different limit to update it; repeating it without a limit
+keeps the installed one. Keep the installed scripts
 and Python interpreter at stable paths. Start a new Claude session after setup.
 
 The installer (including `--dry-run`) discloses verbatim prompt retention under
@@ -48,19 +51,20 @@ instructions or Stop blocks; their existing status display still works. Hooks
 alone cannot execute `/clear` in an ordinary interactive Claude terminal. This
 companion reuses Switch's verified Herdr transport.
 
-The installer merges lifecycle hooks and wraps your effective command statusLine.
-It prints `required_permissions` for the exact installed interpreter and paths.
-Configure those scoped allow entries through your normal Claude permission setup
-for an unattended request/ack/checkpoint path, plus reads for instruction and
-original authority sources and permissions for the task itself. The installer
-preserves existing permissions. See [the base setup](reference.md#permissions-for-the-complete-path)
+The installer merges lifecycle hooks, wraps your effective command statusLine,
+and adds any missing `required_permissions` (scoped request, ack and checkpoint
+entries for the exact installed interpreter and paths) to `permissions.allow` in
+the same settings file. `--dry-run` lists them as `permissions_to_add`. Existing
+permissions are kept, and updating an installed limit does not edit permissions.
+You still configure reads for instruction and original authority sources and
+permissions for the task itself. See [the base setup](reference.md#permissions-for-the-complete-path)
 for filesystem, socket and permission details. Runtime cannot grant permissions.
 
 Without scoped request/ack permissions, auto mode has denied resets before clear.
 Manual-trigger reset and acknowledgment have passed with explicit permissions;
-see [validation](validation.md) for tested versions and limits. Configure scoped
-permissions explicitly before relying on unattended resets. The latest release
-smoke test exercises a manual trigger, not the threshold path.
+see [validation](validation.md) for tested versions and limits. Check the installed scoped
+permissions before relying on unattended resets. See the release notes for the
+current live-check result and remaining limits.
 
 Do not also install `switch.py hook`: the automatic hooks include that recorder.
 The installer refuses detected standalone hooks; migrate those explicitly before
@@ -133,14 +137,24 @@ are omitted. Provenance is capped at 512 KiB per session; exceeding that cap lea
 the existing record and reports a hook error. Checkpoints must retain original
 authority sources, scope and expiry. Agent notes and hook text grant nothing new.
 
-The scoped `.claude/switch-auto.json` manifest records owned hooks and the original
-statusLine; `switch-auto.settings-backup.json` retains a settings backup. Files are
+The scoped `.claude/switch-auto.json` manifest records owned hooks, added
+permissions and the original statusLine. Each fresh install saves a byte-identical
+copy of the existing settings file as `switch-auto.settings-backup-TIMESTAMP.json`
+beside it, never replacing an earlier backup; no backup is made when there was no
+file. Settings writes keep your key order, indentation, line endings and final
+newline, so install then uninstall returns a standard-formatted file byte for byte.
+Formatting that `json.dumps` cannot reproduce, such as unusual spacing, `\u`
+escapes or duplicate keys, is normalized instead; `--dry-run`, install and
+uninstall warn about it, and uninstall then also saves a byte-identical backup.
+Uninstall refuses while `permissions` or `permissions.allow` has the wrong type,
+since removing the manifest would lose the record of added rules. Files are
 private and atomically replaced. The installer lock serializes its own operations;
 a source comparison detects many external edit conflicts, but other editors do
 not honor that lock, so avoid simultaneous settings edits. An incomplete manifest
 can be inspected and removed with `uninstall` before reinstalling.
 
-Uninstall removes only owned entries and restores statusLine if still unchanged.
+Uninstall removes only owned hooks and the permissions it added, and restores
+statusLine if still unchanged.
 It preserves an independently replaced statusLine. If a modified wrapper still
 references its manifest, uninstall refuses until you replace that command or
 restore the installed wrapper; it cannot safely guess how to rewrite shell code.

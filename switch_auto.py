@@ -19,6 +19,7 @@ import switch as sw
 
 MANIFEST = "switch-auto.json"
 MAX_AGE = 60.0
+DEFAULT_LIMIT = "25%"
 LIMIT_RE = re.compile(r"^(\d+(?:\.\d+)?)(%|[kKmM]?)$")
 
 
@@ -57,6 +58,61 @@ def read_settings(path):
     if not isinstance(data, dict):
         raise sw.Refused("settings must be a JSON object: " + str(path))
     return data, raw
+
+
+def render_settings(data, raw):
+    """Keep the user's key order, indentation, escaping and line endings."""
+    indent = 2
+    if raw is not None:
+        nested = re.search(rb"\n([ \t]+)\S", raw)
+        indent = nested[1].decode() if nested else (None if b"\n" not in raw.strip() else 2)
+    ascii_only = raw is not None and raw.isascii() and b"\\u" in raw
+    compact = (",", ":") if indent is None and b": " not in raw else None
+    text = json.dumps(data, indent=indent, ensure_ascii=ascii_only, separators=compact)
+    if raw is None or raw.endswith(b"\n"):
+        text += "\n"
+    if raw is not None and b"\r\n" in raw:
+        text = text.replace("\n", "\r\n")  # JSON strings escape newlines.
+    return text.encode("utf-8")
+
+
+def normalizes(data, raw):
+    """Whether rewriting would change bytes beyond Switch's own entries."""
+    return raw is not None and render_settings(data, raw) != raw
+
+
+def normalizing_notice(path):
+    return (str(path) + " uses formatting Switch cannot reproduce exactly, such as unusual spacing, "
+            "\\u escapes or duplicate keys. Writing it normalizes that formatting; a byte-identical "
+            "backup is saved first.")
+
+
+def write_settings(path, data, raw):
+    sw.atomic_bytes(path, render_settings(data, raw))
+
+
+def write_backup(directory, raw):
+    """Byte-identical settings copy under a new name; earlier backups survive."""
+    if raw is None:
+        return None
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    for n in range(100):
+        path = Path(directory) / f"switch-auto.settings-backup-{stamp}{'-' + str(n) if n else ''}.json"
+        try:
+            sw.atomic_bytes(path, raw, exclusive=True)
+            return str(path)
+        except FileExistsError:
+            continue
+    raise sw.Refused("could not choose an unused settings backup name in " + str(directory))
+
+
+def missing_permissions(settings, wanted):
+    perms = settings.get("permissions", {})
+    if not isinstance(perms, dict) or not isinstance(perms.get("allow", []), list):
+        raise sw.Refused("permissions must be an object and permissions.allow a list")
+    if not all(isinstance(p, str) for p in perms.get("allow", [])):
+        raise sw.Refused("each permissions.allow entry must be a string")
+    return [p for p in wanted if p not in perms.get("allow", [])]
 
 
 def read_config(path):
@@ -151,22 +207,39 @@ def installation_notices(root):
             "user-requested retry with --retry-of after fresh preparation; inspect request status."]
 
 
+def chosen_limit(explicit, old):
+    """An explicit limit wins; reinstalling without one keeps the installed limit."""
+    if explicit:
+        return explicit, []
+    if old:
+        return old["limit"], []
+    return limit(DEFAULT_LIMIT), ["No limit given; using the default " + DEFAULT_LIMIT + " of the reported "
+                                  "context window. Pass a limit such as 40% or 120k to change it."]
+
+
 def install(scope, project, threshold, root, dry_run=False):
-    threshold = limit(threshold)
+    explicit = limit(threshold) if threshold is not None else None
     target = settings_path(scope, project)
     manifest = target.parent / MANIFEST
     # Dry-run does not create even a lock or directory.
     if dry_run:
-        data, _ = read_settings(target)
+        data, raw = read_settings(target)
+        old = read_config(manifest)
+        threshold, notes = chosen_limit(explicit, old)
+        if not old and normalizes(data, raw):
+            notes.append(normalizing_notice(target))
         return {"settings": str(target), "limit": threshold, "scope": scope,
-                "preserves_permissions": True, "existing_statusline": data.get("statusLine"),
-                "notices": installation_notices(root)}
+                "permissions_to_add": [] if old else
+                missing_permissions(data, permissions({"root": str(Path(root).resolve())})),
+                "existing_statusline": data.get("statusLine"),
+                "notices": notes + installation_notices(root)}
     with sw.lock(target.parent / ".switch-auto-install.lock"):
         data, raw = read_settings(target)
         list(hook_commands(data))  # Validate the full tree before mutation.
         old = read_config(manifest)
         if manifest.exists() and old is None:
             raise sw.Refused("incomplete/disabled installation manifest; inspect " + str(manifest))
+        threshold, notes = chosen_limit(explicit, old)
         if old:
             if data.get("statusLine") != old["installed_statusline"]:
                 raise sw.Refused("statusLine changed since install; uninstall preserving that edit first")
@@ -178,7 +251,7 @@ def install(scope, project, threshold, root, dry_run=False):
                 raise sw.Refused("state directory cannot change during an installed scope")
             sw.atomic(manifest, old)
             return {"updated": str(target), "limit": threshold, "required_permissions": permissions(old),
-                    "notices": installation_notices(root)}
+                    "notices": notes + installation_notices(root)}
         # A second lifecycle recorder could report Stop while our Stop continues.
         sources = [target, user_dir() / "settings.json"]
         if scope == "project":
@@ -195,22 +268,34 @@ def install(scope, project, threshold, root, dry_run=False):
              "settings": str(target), "root": str(Path(root).resolve()), "limit": threshold,
              "original_had_statusline": "statusLine" in data,
              "original_statusline": data.get("statusLine"), "original_effective_statusline": original,
+             # The manifest is key-sorted; a JSON string keeps the user's key order.
+             "original_statusline_json": json.dumps(data.get("statusLine"), ensure_ascii=False),
              "installed_statusline": wrapped, "owned_hooks": hooks, "installed_at": time.time()}
+        # Only Switch's own scoped entries; uninstall removes exactly these.
+        added = missing_permissions(data, permissions(c))
+        c.update(added_permissions=added,
+                 created_permissions=bool(added) and "permissions" not in data,
+                 created_allow=bool(added) and "allow" not in data.get("permissions", {}))
         updated = copy.deepcopy(data)
         for name, entries in hooks.items():
             updated.setdefault("hooks", {}).setdefault(name, []).extend(entries)
         updated["statusLine"] = wrapped
-        # Backup and manifest precede configuration mutation. No broad permission edits.
-        sw.atomic(target.parent / "switch-auto.settings-backup.json", data)
+        if added:
+            updated.setdefault("permissions", {}).setdefault("allow", []).extend(added)
+        if normalizes(data, raw):
+            notes.append(normalizing_notice(target))
+        # Byte-identical backup and manifest precede configuration mutation.
+        c["backup"] = write_backup(target.parent, raw)
         sw.atomic(manifest, c)
         _, current = read_settings(target)
         if current != raw:
             raise sw.Refused("settings changed concurrently; no settings replaced; inspect manifest")
-        sw.atomic(target, updated)
+        write_settings(target, updated, raw)
         c["enabled"] = True
         sw.atomic(manifest, c)
         return {"installed": str(target), "limit": threshold, "manifest": str(manifest),
-                "required_permissions": permissions(c), "notices": installation_notices(root),
+                "backup": c["backup"], "added_permissions": added,
+                "required_permissions": permissions(c), "notices": notes + installation_notices(root),
                 "next": "Start a new Claude session under Herdr; retain existing task permissions."}
 
 
@@ -231,6 +316,19 @@ def uninstall(scope, project):
                 updated.get("hooks", {}).pop(name, None)
         if updated.get("hooks") == {}:
             updated.pop("hooks", None)
+        added = c.get("added_permissions", [])
+        perms = updated.get("permissions")
+        if added and perms is not None:
+            # Deleting the manifest would lose the record of which rules we own.
+            if not isinstance(perms, dict) or not isinstance(perms.get("allow", []), list):
+                raise sw.Refused("permissions must be an object and permissions.allow a list; restore "
+                                 "them before uninstalling so added rules can be removed: " + str(target))
+            if "allow" in perms:
+                perms["allow"] = [p for p in perms["allow"] if p not in added]
+                if not perms["allow"] and c.get("created_allow"):
+                    perms.pop("allow")
+            if not perms and c.get("created_permissions"):
+                updated.pop("permissions")
         restored = updated.get("statusLine") == c["installed_statusline"]
         # Invalid edited values are still user edits. Preserve them unless they
         # retain a reference that uninstall would leave dangling.
@@ -240,18 +338,23 @@ def uninstall(scope, project):
                              "the installed wrapper before uninstalling: " + str(target))
         if restored:
             if c["original_had_statusline"]:
-                updated["statusLine"] = c["original_statusline"]
+                updated["statusLine"] = (json.loads(c["original_statusline_json"])
+                                         if "original_statusline_json" in c else c["original_statusline"])
             else:
                 updated.pop("statusLine", None)
         _, current = read_settings(target)
         if current != raw:
             raise sw.Refused("settings changed concurrently; uninstall did not replace them")
+        backup = write_backup(target.parent, raw) if normalizes(data, raw) else None
         c["enabled"] = False
         sw.atomic(manifest, c)
-        sw.atomic(target, updated)
+        write_settings(target, updated, raw)
         manifest.unlink()
-        return {"uninstalled": str(target), "original_statusline_restored": restored,
-                "note": "Unrelated configuration and later statusLine edits preserved; state/evidence retained."}
+        result = {"uninstalled": str(target), "original_statusline_restored": restored,
+                  "note": "Unrelated configuration and later statusLine edits preserved; state/evidence retained."}
+        if backup:
+            result.update(backup=backup, notices=[normalizing_notice(target)])
+        return result
 
 
 def auto_dir(root, pane):
@@ -577,7 +680,9 @@ def main(argv=None):
     for action in ("install", "uninstall", "status"):
         q = sub.add_parser(action)
         if action == "install":
-            q.add_argument("limit")
+            q.add_argument("limit", nargs="?",
+                           help="context limit such as 40%% or 120k; default " + DEFAULT_LIMIT.replace("%", "%%")
+                                + ", or the installed limit when updating")
             q.add_argument("--state-dir", type=Path, default=default_state())
             q.add_argument("--dry-run", action="store_true")
         q.add_argument("--scope", choices=("project", "user"), default="project")

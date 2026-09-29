@@ -21,7 +21,7 @@ import tempfile
 import time
 import uuid
 
-VERSION = "0.3.2"
+VERSION = "0.4.0"
 EVENTS = ("SessionStart", "UserPromptSubmit", "Stop", "PreToolUse", "PostToolUse",
           "PostToolUseFailure", "SubagentStart", "SubagentStop", "PermissionRequest")
 ID_RE = re.compile(r"^[a-zA-Z0-9_.:-]{1,160}$")
@@ -53,16 +53,23 @@ def load(path):
 
 def atomic(path, data):
     """Private, fsynced file and rename; callers own any required lock."""
+    atomic_bytes(path, (json.dumps(data, indent=2, sort_keys=True) + "\n").encode("utf-8"))
+
+
+def atomic_bytes(path, payload, exclusive=False):
+    """Private, fsynced write of exact bytes; exclusive never replaces a file."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     fd, tmp = tempfile.mkstemp(prefix=".switch-", dir=path.parent)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, sort_keys=True)
-            f.write("\n")
+        with os.fdopen(fd, "wb") as f:
+            f.write(payload)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, path)
+        if exclusive:
+            os.link(tmp, path)  # Fails if path exists.
+        else:
+            os.replace(tmp, path)
         dfd = os.open(path.parent, os.O_RDONLY)
         try:
             os.fsync(dfd)
