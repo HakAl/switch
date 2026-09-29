@@ -23,9 +23,22 @@ remain private local files after uninstall.
 
 ## Verification
 
-Pending exported-tree, fresh-clone and scoped live installation/reset checks.
-Results will be recorded before publication. Historical `docs/install-check.txt`
-remains the dated 0.2.0 transcript, not output from this release.
+- All 158 tests pass on Python 3.9.6 and 3.14.7, including the statusLine key-order
+  regression and the prior formatting/permission reproductions.
+- Fresh-clone installation checks pass on both interpreters: no-argument default,
+  retained installed limit, exact backups, added-grant ownership/removal,
+  versions/help, dry-run, status, uninstall and all nine hook commands in both
+  manual and companion configurations.
+- The disposable live test on Herdr 0.7.5 / Claude Code 2.1.284 (Opus 5.5, auto
+  mode) stopped at a classifier denial of preflight, despite its scoped
+  launch-time rule. No request, clear, bootstrap or acknowledgment occurred.
+  The four installer-added rules were present but request/ack execution was not
+  reached; this is not a completed live reset validation.
+- Launch settings stayed unchanged; the test was not retried and permissions were
+  not widened. Raw evidence remains private. See [validation](validation.md).
+
+Percentage-triggered end-to-end reset remains unverified. Historical
+`docs/install-check.txt` remains the dated 0.2.0 transcript, not fresh output.
 
 ## Upgrade
 

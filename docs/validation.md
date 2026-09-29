@@ -2,7 +2,7 @@
 
 ## Automated coverage
 
-The v0.3.2 suite has 145 tests, passing on macOS with Python 3.9.6 and 3.14.7.
+The v0.4.0 suite has 158 tests, passing on macOS with Python 3.9.6 and 3.14.7.
 Tests use fake Herdr, hook input, clocks and a detached subprocess with a fake
 executable. They do not read or send to live panes. Run from the checkout:
 
@@ -16,8 +16,47 @@ uncertain sends, wrong acknowledgments, permission-mode changes, abandoned helpe
 session isolation, malformed context samples, threshold feedback, scoped installation
 and restoration of existing settings. New regressions cover denied tools without
 completion events, missing or mismatched caller panes, and live-session mismatch.
-The v0.3.2 installation check is summarized below. The [v0.2 release check](release-0.2.0.md) preserves the earlier installation
+The v0.4.0 installation check is summarized below. The [v0.2 release check](release-0.2.0.md) preserves the earlier installation
 transcript and its 98-test baseline.
+
+## Release 0.4.0, September 28, 2026
+
+**Automated and installation checks passed:** all 158 tests on Python 3.9.6 and
+3.14.7. The 13 tests added since 0.3.2 cover the default limit, no-argument CLI,
+retained installed limit, permission ownership and malformed inputs, exact unique
+backups, supported formatting/CRLF, normalization notices, and existing statusLine
+key-order restoration. The previous review reproductions were rerun independently.
+
+A fresh local public clone passed version/help, documented no-limit install
+preview, install, status and uninstall on both interpreters. Cases used absent
+settings and standard-formatted existing settings with a statusLine and permission.
+The installer added its four missing scoped rules without manual grant merging,
+preserved the initial file in an exact backup, retained an explicitly changed
+40% threshold on no-argument reinstall, and removed only its grants on uninstall.
+The existing-settings case returned byte for byte to its original state. All nine
+hook commands were invoked successfully with synthetic inputs in both manual and
+companion setups. These tests used isolated project, state and config directories.
+
+**Live reset check incomplete:** a disposable Herdr 0.7.5 / Claude Code 2.1.284
+session (Opus 5.5, auto permission mode, Python 3.14.7) used the fresh default 25%
+installation and its four automatically added permission rules. Separate scoped
+permissions covered fixture files and preflight. The exact preflight Bash command
+was denied by the auto classifier as Tmux Self Drive, despite the launch-time
+rule. The test stopped there: no request was scheduled, no clear/bootstrap/ack
+occurred and no result marker was written. The installed request/ack grants were
+not exercised. Settings remained byte-identical to the launch snapshot, and no
+permission widening, alternate execution route or retry followed the denial.
+The disposable workspace was closed; credentials were not copied.
+
+This was an explicit manual-trigger attempt, not a percentage-threshold test.
+The shell's update prompt initially consumed the launch command before Claude
+started; it was launched normally once the shell prompt was ready, without a
+shell update. Live results from older releases below are historical evidence,
+not certification of this candidate or its new automatic permission setup.
+No production pane was reset. Plugin, new-platform and crash behavior were not
+retested. Raw launch settings, events and receipts stay outside public history;
+only this sanitized summary is published. [install-check.txt](install-check.txt)
+remains explicitly dated 0.2.0.
 
 ## Release 0.3.2, September 27, 2026
 
