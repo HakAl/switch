@@ -182,6 +182,29 @@ terminal captures, captured prompts or local process records. Live results above
 are maintainer-reported observations; the unit suite is reproducible from this tree.
 The v0.3 live retry above is separate from these earlier observations.
 
+## Acknowledgment recovery release, October 3, 2026
+
+All 167 tests pass on Python 3.9.6 and 3.14.7. Nine new regressions cover retained
+bootstrap evidence across follow-up prompts and repeated starts, acknowledgment
+using saved worker confirmation, invalid or absent evidence, existing identity
+and checkpoint/permission checks, and the standalone generated command's match
+to the installer's scoped rule. A late receipt does not rewrite a finished
+request's historical outcome.
+
+Fresh local clones passed version/help, isolated default installation dry-run,
+install, required permissions, status, uninstall, and execution of all nine
+manual and companion hooks on both interpreters. These checks used isolated
+project/state/settings directories without copying authentication or changing
+user settings. The dated 0.2.0 install transcript remains historical.
+
+The disposable live attempt used Herdr 0.7.5, Claude Code 2.1.287, Opus 5.5 and
+auto permission mode. An inherited PreToolUse hook blocked the request command
+because its fixture used system temporary storage. No reset request was created,
+and clear/bootstrap/ack were not reached. The test ended without retry, permission
+changes or edits to the inherited hook; fixture settings remained byte-identical.
+The workspace was closed. Raw output is private. This does not validate live
+auto-mode ack execution, threshold triggering or denial recovery.
+
 ## Recovery and resource limits
 
 An early disposable test confirmed clear but failed to resume because Claude
