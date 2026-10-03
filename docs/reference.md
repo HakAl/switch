@@ -117,6 +117,11 @@ reads for the actual instruction/authority files and only the writes/commands
 needed by the task's next action. An acknowledgment does not grant that next
 action permission. Deny or managed rules still apply.
 
+Run the bootstrap's ack command exactly as printed, alone in its own Bash call.
+Do not chain it with checksum checks or other verification; run those in a
+separate call. The installer's existing ack rule covers the generated interpreter
+and script prefix, not every command you might combine with it.
+
 The helper and hooks need filesystem access to their state directory, the
 checkpoint, instruction and authority sources, plus access to the local Herdr
 socket and executable. The helper invokes only `herdr agent list`, `herdr pane
@@ -234,6 +239,19 @@ Only `resumed` is a completed reset-and-resume result. A successful Herdr send
 alone is not proof of submission, and a working status is not an acknowledgment.
 The agent's receipt attests that it read the checkpoint/instructions and rechecked
 authority; it is not an independent proof of comprehension.
+
+Bootstrap submission evidence survives ordinary follow-up prompts in the same
+session. Ack accepts either matching session telemetry or the worker's saved
+`submitted_at` confirmation for that request. The latter also supports recovery
+from older hooks that erased telemetry on a follow-up. The input provenance
+archive (`auto/PANE/SESSION.inputs.json`) intentionally excludes Switch
+bootstraps; its absence there does not mean submission was missed.
+
+After a timeout, a valid manual ack can write `ack.json`, but it does not restart
+the helper or change its finished `cleared_not_resumed` outcome to `resumed`.
+Inspect both records during recovery. Session/terminal identity, checkpoint and
+permission-mode checks still apply; changing permission mode can produce a
+separate refusal. No automatic denial retry or deadline extension is performed.
 
 A finished `not_cleared` request can be retried explicitly if status reports
 `retry_eligible: true`. Revalidate preparation and update the checkpoint, then

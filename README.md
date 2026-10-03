@@ -10,8 +10,8 @@ limit such as `40%` or `250k` tokens. Switch asks the agent to finish active wor
 and save a checkpoint before resetting. The limit is a soft threshold; finishing
 work can take it over the target.
 
-Release [0.4.0](docs/release-0.4.0.md) simplifies installation, adds scoped
-permissions automatically, and preserves settings with exact backups.
+Release [0.4.1](docs/release-0.4.1.md) preserves bootstrap submission evidence
+for acknowledgment recovery and seeds an exact standalone ack command.
 
 ## Requirements
 

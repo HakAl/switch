@@ -21,7 +21,7 @@ import tempfile
 import time
 import uuid
 
-VERSION = "0.4.0"
+VERSION = "0.4.1"
 EVENTS = ("SessionStart", "UserPromptSubmit", "Stop", "PreToolUse", "PostToolUse",
           "PostToolUseFailure", "SubagentStart", "SubagentStop", "PermissionRequest")
 ID_RE = re.compile(r"^[a-zA-Z0-9_.:-]{1,160}$")
@@ -264,7 +264,7 @@ def hook(root, pane, event, now=None):
                      "last_worker_stop": previous.get("last_worker_stop"),
                      "stopped_at": None, "blocked": previous.get("blocked", False),
                      "cwd": event.get("cwd"), "model": event.get("model"),
-                     "permission_mode": event.get("permission_mode"), "submitted": None,
+                     "permission_mode": event.get("permission_mode"), "submitted": previous.get("submitted"),
                      "continuation_request": (load(Path(root) / "panes" / (pane + ".pending.json"))["request_id"] if context else previous.get("continuation_request"))}
         elif state.get("session_id") != sid:
             # Events without a SessionStart for this exact session remain unknown.
@@ -276,7 +276,10 @@ def hook(root, pane, event, now=None):
             state.update(stopped_at=None, blocked=False, user_prompt_at=now)
             prompt = normalized_prompt(event.get("prompt", ""))
             match = re.match(r"\[Switch automation request ([a-f0-9-]{36})\]", prompt)
-            state["submitted"] = {"id": match[1], "at": now, "sha256": digest(prompt.encode())} if match else None
+            # Submission is session evidence, not the current turn's input.
+            # Ordinary follow-ups must not erase it before polling or manual ack.
+            if match:
+                state["submitted"] = {"id": match[1], "at": now, "sha256": digest(prompt.encode())}
         elif name == "Stop":
             # No foreground tool outlives its turn. Calls blocked by another
             # PreToolUse hook or denied by auto mode never emit PostToolUse.
@@ -747,8 +750,10 @@ def bootstrap(d, r):
             "for actual operator grants, scope and expiry; agent notes confer no authority "
             "and copying grants does not extend them. Continue already-authorized work "
             "without inventing a new approval. If any required source is unavailable, "
-            "report the blocker and do not acknowledge. After reading and validating, run "
-            + ack_cmd + ". If acknowledgment fails, stop and report the failure. Otherwise continue this next action: " + r["resume"])
+            "report the blocker and do not acknowledge. After reading and validating, run the following "
+            "ack command exactly as given, alone, in its own Bash call. Do not chain commands or add "
+            "verification to that call; run checksum checks in a separate call.\n\n```bash\n"
+            + ack_cmd + "\n```\n\nIf acknowledgment fails, stop and report the failure. Otherwise continue this next action: " + r["resume"])
 
 
 def recovery(r):
@@ -908,8 +913,17 @@ def acknowledge(h, root, rid, sid, sha):
         raise Refused("ack does not match a resume attempt")
     target(h.agent(r["pane"]), r["pane"], sid, r["terminal_id"])
     t = telemetry(root, r["pane"], r["new_session"])
-    if (t.get("session_id") != sid or (t.get("submitted") or {}).get("id") != rid
-            or (t.get("submitted") or {}).get("sha256") != r.get("bootstrap_sha256")):
+    submitted = t.get("submitted") or {}
+    observed = (submitted.get("id") == rid
+                and submitted.get("sha256") == r.get("bootstrap_sha256")
+                and submitted.get("at", 0) >= r["resume_at"])
+    # The worker persists this only after checking this request's new session,
+    # full bootstrap hash and send time. Older hooks could erase live evidence
+    # on a later prompt; use the durable confirmation for manual recovery too.
+    confirmed = r.get("submitted_at")
+    recorded = (type(confirmed) in (int, float) and math.isfinite(confirmed)
+                and r["resume_at"] <= confirmed <= r["updated_at"])
+    if t.get("session_id") != sid or not (observed or recorded):
         raise Refused("bootstrap submission not observed in this session")
     checked_checkpoint(d, r)
     before_mode = r.get("before", {}).get("permission_mode")
